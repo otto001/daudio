@@ -1,0 +1,4 @@
+xcb_connection_has_error() returned true
+xcb_connection_has_error() returned true
+XIO:  fatal IO error 11 (Resource temporarily unavailable) on X server ":0"
+      after 4866 requests (6 known processed) with 0 events remaining.

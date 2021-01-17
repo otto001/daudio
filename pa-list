@@ -1,0 +1,6 @@
+#! /bin/sh
+pacmd list-sinks | sed -n -E 's/(index:|device\.description = )//p' | sed 's/^[ \t]*//'
+
+#awk '/index/ || /device.description/ {print $0}'
+
+#| awk 'NR % 2 == 1 { o=$0 ; next } { print o  $0 }' | sed 's/device.description = '

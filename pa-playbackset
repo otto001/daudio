@@ -1,0 +1,6 @@
+#! /bin/sh
+
+# set the default output device
+pacmd set-default-sink "$2" &> /dev/null
+# apply changes to one running app to use the new output device
+pacmd move-sink-input "$1" "$2" &> /dev/null

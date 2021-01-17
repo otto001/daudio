@@ -1,0 +1,8 @@
+#! /bin/sh
+# bash -c "inputs=$(pacmd list-sink-inputs | awk '/index/ {print $2}'); pacmd set-default-sink $1 &> /dev/null; for i in $inputs; do echo $i; pacmd move-sink-input $i $1 &> /dev/null; done"
+# list all apps in playback tab (ex: cmus, mplayer, vlc)
+inputs=$(pacmd list-sink-inputs | awk '/index/ {print $2}')
+# set the default output device
+pacmd set-default-sink $1 &> /dev/null
+# apply the changes to all running apps to use the new output device
+for i in $inputs; do pacmd move-sink-input $i $1 &> /dev/null; done

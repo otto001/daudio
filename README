@@ -1,0 +1,24 @@
+dwm_vol - dynamic menu
+====================
+dwm_vol is an efficient dynamic menu for X.
+
+
+Requirements
+------------
+In order to build dwm_vol you need the Xlib header files.
+
+
+Installation
+------------
+Edit config.mk to match your local setup (dwm_vol is installed into
+the /usr/local namespace by default).
+
+Afterwards enter the following command to build and install dwm_vol
+(if necessary as root):
+
+    make clean install
+
+
+Running dwm_vol
+-------------
+See the man page for details.
