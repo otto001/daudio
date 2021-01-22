@@ -314,6 +314,27 @@ keypress(XKeyEvent *ev)
         case XK_2:
             setPlaybackSink(2);
             break;
+        case XK_3:
+            setPlaybackSink(3);
+            break;
+        case XK_4:
+            setPlaybackSink(4);
+            break;
+        case XK_5:
+            setPlaybackSink(5);
+            break;
+        case XK_6:
+            setPlaybackSink(6);
+            break;
+        case XK_7:
+            setPlaybackSink(7);
+            break;
+        case XK_8:
+            setPlaybackSink(8);
+            break;
+        case XK_9:
+            setPlaybackSink(9);
+            break;
         case XK_m:
         case 0x1008ff12:
             cmd = "toggle";
