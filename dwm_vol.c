@@ -38,11 +38,10 @@ enum {
     SchemeSel, SchemeNorm, SchemeMuted, SchemeLast
 };
 static char *embed;
-static int bh, mw, mh;
+static int bh, mw, mh, lrpad;
 static int mon = -1, screen;
 static char interactive;
 
-static Atom clip, utf8;
 static Display *dpy;
 static Window root, parentwin, win;
 static XIC xic;
@@ -53,6 +52,15 @@ static Clr *scheme[SchemeLast];
 static char muted;
 static int volume;
 static int notChangedCounter;
+
+typedef struct Sink {
+    int index;
+    char active;
+    char name[128];
+} Sink;
+
+static Sink* sinks;
+static size_t sinksNum;
 
 static char *cmd;
 
@@ -125,14 +133,14 @@ _readAlsaVolume() {
 
     const char *secondBracket = strchr(firstBracket + 1, '[');
 
-    char isOn = strncmp(secondBracket + 1, "on", 2) == 0;
+    char isOn = (char)(strncmp(secondBracket + 1, "on", 2) == 0);
 
     char val[4];
     memset(val, 0, 4);
     memcpy(val, firstBracket + 1, MIN(percentSign - firstBracket - 1, 3));
-    volume = strtol(val, NULL, 10);
+    volume = (int) strtol(val, NULL, 10);
 
-    muted = !isOn;
+    muted = (char) !isOn;
 
     waitpid(pid, NULL, 0);
     return 0;
@@ -145,6 +153,41 @@ static int readAlsaVolume() {
     return result;
 }
 
+static int readSinks() {
+    char* sinksRaw = run_command("pacmd list-sinks | sed -n -E 's/(index:|device\\.description = )//p' | sed 's/^[ \\t]*//' | sed -z 's/\\n/;/g'");
+    if (sinksRaw) {
+        int occurrences = 0;
+        for (const char* s=sinksRaw; s[occurrences]; s[occurrences] == ';' ? occurrences++ : *s++);
+        int index = 0;
+
+        if (sinks) {
+            free(sinks);
+            sinks = NULL;
+        }
+        sinksNum = ((occurrences+1)/2);
+        sinks = malloc(sizeof(Sink)*sinksNum);
+
+        char *ptr = strtok(sinksRaw, ";");
+        char *indexPtr = NULL;
+
+        while(ptr != NULL) {
+            if (indexPtr != NULL) {
+                ptr++;
+                sinks[index].active = (char)(indexPtr[0] == '*');
+                sinks[index].index = index +1 ;
+                snprintf(sinks[index].name, sizeof(sinks[0].name), "%s", ptr);
+                index++;
+                indexPtr = NULL;
+            } else {
+                indexPtr = ptr;
+            }
+            ptr = strtok(NULL, ";");
+        }
+
+    }
+    return 0;
+}
+
 static void
 executeCommand(void) {
     if (cmd == NULL) {
@@ -155,7 +198,7 @@ executeCommand(void) {
 
     if (!strcmp(cmd, "toggle")) {
         cmdVec = toggleVolCmd;
-        muted = !muted;
+        muted = (char) !muted;
     } else {
         int volumeStep;
 
@@ -204,6 +247,7 @@ setPlaybackSink(int number) {
         index++;
     }
     readAlsaVolume();
+    readSinks();
 
 }
 
@@ -211,13 +255,8 @@ static void
 draw(void) {
     sem_wait(&mutex);
 
-    char *list = run_command("pacmd list-sinks | sed -n -E 's/(index:|device\\.description = )//p' | sed 's/^[ \\t]*//' | sed -z 's/\\n/;/g'");
-    int occurrences = 0;
-
-    for (const char* s=list; s[occurrences]; s[occurrences] == ';' ? occurrences++ : *s++);
-
     int barHeight = (int) 1.5f*bh;
-    int newMh = barHeight + bh + bh*((occurrences+1)/2);
+    int newMh = barHeight + bh + bh*sinksNum;
 
 
     if (mh != newMh) {
@@ -242,36 +281,21 @@ draw(void) {
     }
     drw_setscheme(drw, scheme[SchemeNorm]);
 
-    unsigned int y = barHeight + bh;
-    int counter = 1;
-    if (list) {
-        char *ptr = strtok(list, ";");
-        char *index = NULL;
+    int y = barHeight + bh;
 
-        while(ptr != NULL) {
-            if (index != NULL) {
-
-                if (index[0] == '*') {
-                    drw_setscheme(drw, scheme[SchemeSel]);
-                    drw_rect(drw, 0, y, mw, bh, 1, 0);
-                } else {
-                    drw_setscheme(drw, scheme[SchemeNorm]);
-                }
-                ptr++;
-                ptr[strlen(ptr) - 1] = ' ';
-                snprintf(buf, sizeof(buf), "%d", counter);
-                drw_text(drw, 0, y, mw, bh, 0, buf, 0);
-                drw_text(drw, bh, y, mw, bh, 0, ptr, 0);
-                y += bh;
-                counter++;
-                index = NULL;
-            } else {
-                index = ptr;
-            }
-            ptr = strtok(NULL, ";");
+    for (size_t index = 0; index < sinksNum; index++) {
+        if (sinks[index].active) {
+            drw_setscheme(drw, scheme[SchemeSel]);
+            drw_rect(drw, 0, y, mw, bh, 1, 0);
+        } else {
+            drw_setscheme(drw, scheme[SchemeNorm]);
         }
-
+        snprintf(buf, sizeof(buf), "%d", sinks[index].index);
+        drw_text(drw, 0, y, mw, bh, lrpad/2, buf, 0);
+        drw_text(drw, bh, y, mw-bh, bh, lrpad/2, sinks[index].name, 0);
+        y += bh;
     }
+
     drw_map(drw, win, 0, 0, mw, mh);
     sem_post(&mutex);
 }
@@ -433,7 +457,7 @@ run(void) {
             die("clock_gettime:");
         }
 
-		notChangedCounter++;
+        notChangedCounter++;
         if (notChangedCounter >= lifetime / interval) {
             cleanup();
             exit(0);
@@ -487,6 +511,7 @@ signal_callback_handler(int signum) {
     nanosleep(&ts, NULL);
 
     readAlsaVolume();
+    readSinks();
     draw();
 }
 
@@ -512,11 +537,9 @@ setup(void) {
         scheme[j] = drw_scm_create(drw, colors[j], 2);
     }
 
-    clip = XInternAtom(dpy, "CLIPBOARD", False);
-    utf8 = XInternAtom(dpy, "UTF8_STRING", False);
-
     /* calculate menu geometry */
     bh = drw->fonts->h + 2;
+    lrpad = drw->fonts->h;
     mh = height;
 #ifdef XINERAMA
     i = 0;
@@ -591,6 +614,7 @@ setup(void) {
         grabkeyboard();
     }
     readAlsaVolume();
+    readSinks();
     draw();
     signal(SIGUSR1, signal_callback_handler);
 
@@ -613,7 +637,7 @@ main(int argc, char *argv[]) {
         /* these options take no arguments */
         if (!strcmp(argv[i], "-v")) {      /* prints version information */
             puts("dwm_vol-"
-            VERSION);
+                 VERSION);
             exit(0);
         }
         else if (!strcmp(argv[i], "-i"))
