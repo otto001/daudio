@@ -1,15 +1,15 @@
-# dwm_vol - dynamic menu
+# dvol - dynamic menu
 # See LICENSE file for copyright and license details.
 
 include config.mk
 
-SRC = drw.c dwm_vol.c util.c
+SRC = drw.c dvol.c util.c
 OBJ = $(SRC:.c=.o)
 
-all: options dwm_vol
+all: options dvol
 
 options:
-	@echo dwm_vol build options:
+	@echo dvol build options:
 	@echo "CFLAGS   = $(CFLAGS)"
 	@echo "LDFLAGS  = $(LDFLAGS)"
 	@echo "CC       = $(CC)"
@@ -22,31 +22,31 @@ config.h:
 
 $(OBJ): arg.h config.h config.mk drw.h
 
-dwm_vol: dwm_vol.o drw.o util.o
-	$(CC) -o $@ dwm_vol.o drw.o util.o $(LDFLAGS)
+dvol: dvol.o drw.o util.o
+	$(CC) -o $@ dvol.o drw.o util.o $(LDFLAGS)
 
 clean:
-	rm -f dwm_vol $(OBJ) dwm_vol-$(VERSION).tar.gz
+	rm -f dvol $(OBJ) dvol-$(VERSION).tar.gz
 
 dist: clean
-	mkdir -p dwm_vol-$(VERSION)
-	cp LICENSE Makefile README arg.h config.def.h config.mk dwm_vol.1\
+	mkdir -p dvol-$(VERSION)
+	cp LICENSE Makefile README arg.h config.def.h config.mk dvol.1\
 		drw.h util.h $(SRC)\
-		dwm_vol-$(VERSION)
-	tar -cf dwm_vol-$(VERSION).tar dwm_vol-$(VERSION)
-	gzip dwm_vol-$(VERSION).tar
-	rm -rf dwm_vol-$(VERSION)
+		dvol-$(VERSION)
+	tar -cf dvol-$(VERSION).tar dvol-$(VERSION)
+	gzip dvol-$(VERSION).tar
+	rm -rf dvol-$(VERSION)
 
 install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp -f dwm_vol $(DESTDIR)$(PREFIX)/bin
-	chmod 755 $(DESTDIR)$(PREFIX)/bin/dwm_vol
+	cp -f dvol $(DESTDIR)$(PREFIX)/bin
+	chmod 755 $(DESTDIR)$(PREFIX)/bin/dvol
 	mkdir -p $(DESTDIR)$(MANPREFIX)/man1
-	sed "s/VERSION/$(VERSION)/g" < dwm_vol.1 > $(DESTDIR)$(MANPREFIX)/man1/dwm_vol.1
-	chmod 644 $(DESTDIR)$(MANPREFIX)/man1/dwm_vol.1
+	sed "s/VERSION/$(VERSION)/g" < dvol.1 > $(DESTDIR)$(MANPREFIX)/man1/dvol.1
+	chmod 644 $(DESTDIR)$(MANPREFIX)/man1/dvol.1
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/dwm_vol\
-		$(DESTDIR)$(MANPREFIX)/man1/dwm_vol.1\
+	rm -f $(DESTDIR)$(PREFIX)/bin/dvol\
+		$(DESTDIR)$(MANPREFIX)/man1/dvol.1\
 
 .PHONY: all options clean dist install uninstall

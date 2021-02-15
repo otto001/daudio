@@ -1,24 +1,24 @@
-dwm_vol - dynamic sound
+dvol - dynamic sound
 ====================
-dwm_vol is sound manage util for dwm.
+dvol is sound manage util for dwm.
 
 
 Requirements
 ------------
-In order to build dwm_vol you need the Xlib header files.
+In order to build dvol you need the Xlib header files.
 
 
 Installation
 ------------
-Edit config.mk to match your local setup (dwm_vol is installed into
+Edit config.mk to match your local setup (dvol is installed into
 the /usr/local namespace by default).
 
-Afterwards enter the following command to build and install dwm_vol
+Afterwards enter the following command to build and install dvol
 (if necessary as root):
 
     make clean install
 
 
-Running dwm_vol
+Running dvol
 -------------
 See the man page for details.

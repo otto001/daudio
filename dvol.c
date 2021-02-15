@@ -487,12 +487,12 @@ run(void) {
 static void
 checkSingleton(void) {
     while (1) {
-        int pid_file = open("/tmp/dwm_vol.pid", O_CREAT | O_RDWR, 0666);
+        int pid_file = open("/tmp/dvol.pid", O_CREAT | O_RDWR, 0666);
         int rc = lockf(pid_file, F_TLOCK, 0);
         if (rc) {
-            // EACCES == errno if dwm_vol is already running
+            // EACCES == errno if dvol is already running
             if (errno != EINTR) {
-                run_command("killall -s USR1 dwm_vol");
+                run_command("killall -s USR1 dvol");
                 exit(0);
             }
         } else {
@@ -523,7 +523,7 @@ setup(void) {
     XIM xim;
     Window w, dw, *dws;
     XWindowAttributes wa;
-    XClassHint ch = {"dwm_vol", "dwm_vol"};
+    XClassHint ch = {"dvol", "dvol"};
 #ifdef XINERAMA
     XineramaScreenInfo *info;
     Window pw;
@@ -622,7 +622,7 @@ setup(void) {
 
 static void
 usage(void) {
-    fputs("usage: dwm_vol [-bfiv] [-cmd toggle|up|down] [-i interactive] [-fn font] [-m monitor]\n"
+    fputs("usage: dvol [-bfiv] [-cmd toggle|up|down] [-i interactive] [-fn font] [-m monitor]\n"
           "             [-b color] [-f color] [-w windowid]\n", stderr);
     exit(1);
 }
@@ -636,7 +636,7 @@ main(int argc, char *argv[]) {
 
         /* these options take no arguments */
         if (!strcmp(argv[i], "-v")) {      /* prints version information */
-            puts("dwm_vol-"
+            puts("dvol-"
                  VERSION);
             exit(0);
         }

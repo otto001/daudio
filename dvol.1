@@ -1,8 +1,8 @@
-.TH dwm_vol 1 dwm_vol\-VERSION
+.TH dvol 1 dvol\-VERSION
 .SH NAME
-dwm_vol \- dynamic menu
+dvol \- dynamic menu
 .SH SYNOPSIS
-.B dwm_vol
+.B dvol
 .RB [ \-bfiv ]
 .RB [ \-l
 .IR lines ]
@@ -23,35 +23,35 @@ dwm_vol \- dynamic menu
 .RB [ \-w
 .IR windowid ]
 .P
-.BR dwm_vol_run " ..."
+.BR dvol_run " ..."
 .SH DESCRIPTION
-.B dwm_vol
+.B dvol
 is a dynamic menu for X, which reads a list of newline\-separated items from
 stdin.  When the user selects an item and presses Return, their choice is printed
-to stdout and dwm_vol terminates.  Entering text will narrow the items to those
+to stdout and dvol terminates.  Entering text will narrow the items to those
 matching the tokens in the input.
 .P
-.B dwm_vol_run
+.B dvol_run
 is a script used by
 .IR dwm (1)
 which lists programs in the user's $PATH and runs the result in their $SHELL.
 .SH OPTIONS
 .TP
 .B \-b
-dwm_vol appears at the bottom of the screen.
+dvol appears at the bottom of the screen.
 .TP
 .B \-f
-dwm_vol grabs the keyboard before reading stdin if not reading from a tty. This
+dvol grabs the keyboard before reading stdin if not reading from a tty. This
 is faster, but will lock up X until stdin reaches end\-of\-file.
 .TP
 .B \-i
-dwm_vol matches menu items case insensitively.
+dvol matches menu items case insensitively.
 .TP
 .BI \-l " lines"
-dwm_vol lists items vertically, with the given number of lines.
+dvol lists items vertically, with the given number of lines.
 .TP
 .BI \-m " monitor"
-dwm_vol is displayed on the monitor number supplied. Monitor numbers are starting
+dvol is displayed on the monitor number supplied. Monitor numbers are starting
 from 0.
 .TP
 .BI \-p " prompt"
@@ -81,7 +81,7 @@ prints version information to stdout, then exits.
 .BI \-w " windowid"
 embed into windowid.
 .SH USAGE
-dwm_vol is completely controlled by the keyboard.  Items are selected using the
+dvol is completely controlled by the keyboard.  Items are selected using the
 arrow keys, page up, page down, home, and end.
 .TP
 .B Tab

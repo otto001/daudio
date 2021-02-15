@@ -1,4 +1,4 @@
-# dwm_vol version
+# dvol version
 VERSION = 1.0
 
 # paths
