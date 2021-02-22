@@ -85,6 +85,9 @@ cleanup(void) {
     for (size_t i = 0; i < SchemeLast; i++) {
         free(scheme[i]);
     }
+    if (sinks) {
+        free(sinks);
+    }
     drw_free(drw);
     XSync(dpy, False);
     XCloseDisplay(dpy);
