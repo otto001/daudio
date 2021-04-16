@@ -1,6 +1,6 @@
 .TH dvol 1 dvol\-VERSION
 .SH NAME
-dvol \- dynamic menu
+dvol \- dynamic audio tool
 .SH SYNOPSIS
 .B dvol
 .RB [ \-bfiv ]
@@ -20,42 +20,30 @@ dvol \- dynamic menu
 .IR color ]
 .RB [ \-sf
 .IR color ]
+.RB [ \-mb
+.IR color ]
+.RB [ \-mf
+.IR color ]
 .RB [ \-w
 .IR windowid ]
 .P
 .BR dvol_run " ..."
 .SH DESCRIPTION
 .B dvol
-is a dynamic menu for X, which reads a list of newline\-separated items from
-stdin.  When the user selects an item and presses Return, their choice is printed
-to stdout and dvol terminates.  Entering text will narrow the items to those
-matching the tokens in the input.
+is a dynamic audio tool for X. It allows the user to adjust the volume and the output device.
+Only one instance can run at a time, this is handled via /tmp/dvol.pid. A render can be forced via signal SIGUSR1.
 .P
-.B dvol_run
-is a script used by
-.IR dwm (1)
-which lists programs in the user's $PATH and runs the result in their $SHELL.
 .SH OPTIONS
 .TP
-.B \-b
-dvol appears at the bottom of the screen.
+.BI \-cmd " up|down|toggle"
+which command to execute on program start. up increases volume, down decreases volume, toggle (un-)mutes.
 .TP
-.B \-f
-dvol grabs the keyboard before reading stdin if not reading from a tty. This
-is faster, but will lock up X until stdin reaches end\-of\-file.
-.TP
-.B \-i
-dvol matches menu items case insensitively.
-.TP
-.BI \-l " lines"
-dvol lists items vertically, with the given number of lines.
+.BI \-i
+interactive mode. Grabs keyboard.
 .TP
 .BI \-m " monitor"
 dvol is displayed on the monitor number supplied. Monitor numbers are starting
 from 0.
-.TP
-.BI \-p " prompt"
-defines the prompt to be displayed to the left of the input field.
 .TP
 .BI \-fn " font"
 defines the font or font set used.
@@ -75,120 +63,24 @@ defines the selected background color.
 .BI \-sf " color"
 defines the selected foreground color.
 .TP
+.BI \-mb " color"
+defines the muted background color.
+.TP
+.BI \-mf " color"
+defines the muted foreground color.
+.TP
 .B \-v
 prints version information to stdout, then exits.
 .TP
 .BI \-w " windowid"
 embed into windowid.
 .SH USAGE
-dvol is completely controlled by the keyboard.  Items are selected using the
-arrow keys, page up, page down, home, and end.
-.TP
-.B Tab
-Copy the selected item to the input field.
+In interactive mode, dvol is completely controlled by the keyboard. Volume is adjusted via the arrow keys left/right,
+output devices are selected using the arrow keys up/down.
+
 .TP
 .B Return
-Confirm selection.  Prints the selected item to stdout and exits, returning
-success.
-.TP
-.B Ctrl-Return
-Confirm selection.  Prints the selected item to stdout and continues.
-.TP
-.B Shift\-Return
-Confirm input.  Prints the input text to stdout and exits, returning success.
-.TP
-.B Escape
-Exit without selecting an item, returning failure.
-.TP
-.B Ctrl-Left
-Move cursor to the start of the current word
-.TP
-.B Ctrl-Right
-Move cursor to the end of the current word
-.TP
-.B C\-a
-Home
-.TP
-.B C\-b
-Left
-.TP
-.B C\-c
-Escape
-.TP
-.B C\-d
-Delete
-.TP
-.B C\-e
-End
-.TP
-.B C\-f
-Right
-.TP
-.B C\-g
-Escape
-.TP
-.B C\-h
-Backspace
-.TP
-.B C\-i
-Tab
-.TP
-.B C\-j
-Return
-.TP
-.B C\-J
-Shift-Return
-.TP
-.B C\-k
-Delete line right
-.TP
-.B C\-m
-Return
-.TP
-.B C\-M
-Shift-Return
-.TP
-.B C\-n
-Down
-.TP
-.B C\-p
-Up
-.TP
-.B C\-u
-Delete line left
-.TP
-.B C\-w
-Delete word left
-.TP
-.B C\-y
-Paste from primary X selection
-.TP
-.B C\-Y
-Paste from X clipboard
-.TP
-.B M\-b
-Move cursor to the start of the current word
-.TP
-.B M\-f
-Move cursor to the end of the current word
-.TP
-.B M\-g
-Home
-.TP
-.B M\-G
-End
-.TP
-.B M\-h
-Up
-.TP
-.B M\-j
-Page down
-.TP
-.B M\-k
-Page up
-.TP
-.B M\-l
-Down
+Confirm output device selection.
+
 .SH SEE ALSO
-.IR dwm (1),
-.IR stest (1)
+.IR dwm (1)

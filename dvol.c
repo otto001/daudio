@@ -61,6 +61,7 @@ typedef struct Sink {
 
 static Sink* sinks;
 static size_t sinksNum;
+static size_t selectedSink;
 
 static char *cmd;
 
@@ -141,6 +142,8 @@ _readAlsaVolume() {
     char val[4];
     memset(val, 0, 4);
     memcpy(val, firstBracket + 1, MIN(percentSign - firstBracket - 1, 3));
+    printf("%s", firstBracket+1);
+
     volume = (int) strtol(val, NULL, 10);
 
     muted = (char) !isOn;
@@ -152,6 +155,7 @@ _readAlsaVolume() {
 static int readAlsaVolume() {
     sem_wait(&mutex);
     int result = _readAlsaVolume();
+
     sem_post(&mutex);
     return result;
 }
@@ -176,9 +180,19 @@ static int readSinks() {
         while(ptr != NULL) {
             if (indexPtr != NULL) {
                 ptr++;
-                sinks[index].active = (char)(indexPtr[0] == '*');
-                sinks[index].index = index +1 ;
-                snprintf(sinks[index].name, sizeof(sinks[0].name), "%s", ptr);
+                if (indexPtr[0] == '*') {
+                    sinks[index].active = 1;
+                    selectedSink = index;
+                    indexPtr++;
+                } else {
+                    sinks[index].active = 0;
+                }
+                sinks[index].index = (int) strtol(indexPtr, NULL, 10);
+                char* name = sinks[index].name;
+                snprintf(name, sizeof(sinks[0].name), "%s", ptr);
+                if (name[strlen(name)-1] == '"') {
+                    name[strlen(name)-1] = '\0';
+                }
                 index++;
                 indexPtr = NULL;
             } else {
@@ -197,7 +211,6 @@ executeCommand(void) {
         return;
     }
     const char **cmdVec;
-    readAlsaVolume();
 
     if (!strcmp(cmd, "toggle")) {
         cmdVec = toggleVolCmd;
@@ -206,13 +219,14 @@ executeCommand(void) {
         int volumeStep;
 
         if (!strcmp(cmd, "up")) {
-            volumeStep = MIN(step, MAX(maxVol - volume, 0));
+            volumeStep = step;
         } else if (!strcmp(cmd, "down")) {
-            volumeStep = -MIN(step, MAX(volume - minVol, 0));
+            volumeStep = -step;
         } else {
             return;
         }
         volume += volumeStep;
+        volume = MAX(minVol, MIN(maxVol, volume));
         snprintf(buf, sizeof(buf), "%d%%", volume);
         cmdVec = setVolCmd;
     }
@@ -220,7 +234,6 @@ executeCommand(void) {
     if (cmdVec == NULL) {
         return;
     }
-
     pid_t pid = fork();
     if (pid == -1) {
         return;
@@ -235,20 +248,14 @@ executeCommand(void) {
 
 static void
 setPlaybackSink(int number) {
-    char *list = run_command("pacmd list-sinks | sed -n -E 's/(index:)//p' | sed 's/^[\\* \\t]*//' | sed -z 's/\\n/;/g'");
-    int index = 1;
-    char *ptr = strtok(list, ";");
+    int index = sinks[number].index;
 
-    while(ptr != NULL) {
-        if (index == number) {
-            char bigbuf[512];
-            snprintf(bigbuf, sizeof(bigbuf), "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %s &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %s &> /dev/null; done\"", ptr, ptr);
-            run_command(bigbuf);
-            break;
-        }
-        ptr = strtok(NULL, ";");
-        index++;
-    }
+    char bigbuf[512];
+    snprintf(bigbuf, sizeof(bigbuf), "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %d &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %d &> /dev/null; done\"",
+             index, index);
+    run_command(bigbuf);
+    printf(bigbuf);
+    fflush(stdout);
     readAlsaVolume();
     readSinks();
 
@@ -259,8 +266,7 @@ draw(void) {
     sem_wait(&mutex);
 
     int barHeight = (int) 1.5f*bh;
-    int newMh = barHeight + bh + bh*sinksNum;
-
+    int newMh = (int) barHeight + (interactive ? bh + bh*sinksNum : 0);
 
     if (mh != newMh) {
         mh = newMh;
@@ -270,9 +276,10 @@ draw(void) {
     drw_setscheme(drw, scheme[SchemeNorm]);
     drw_rect(drw, 0, 0, mw, mh, 1, 1);
 
-    if (volume >= 0 && volume <= 100) {
+    if (volume >= minVol && volume <= 100) {
         double volumeRatio = ((double) (volume - minVol)) / ((double) (maxVol - minVol));
-        unsigned int w = mw * volumeRatio;
+        int w = (int) mw * volumeRatio;
+        w = MIN(w, mw);
         if (muted) {
             drw_setscheme(drw, scheme[SchemeMuted]);
         } else {
@@ -282,23 +289,26 @@ draw(void) {
         drw_rect(drw, 0, 0, w, barHeight, 1, 1);
 
     }
-    drw_setscheme(drw, scheme[SchemeNorm]);
+    if (interactive) {
+        drw_setscheme(drw, scheme[SchemeNorm]);
 
-    int y = barHeight + bh;
+        int y = barHeight + bh;
 
-    for (size_t index = 0; index < sinksNum; index++) {
-        if (sinks[index].active) {
-            drw_setscheme(drw, scheme[SchemeSel]);
-            drw_rect(drw, 0, y, mw, bh, 1, 0);
-        } else {
-            drw_setscheme(drw, scheme[SchemeNorm]);
+        for (size_t index = 0; index < sinksNum; index++) {
+
+            if (index == selectedSink) {
+                drw_setscheme(drw, scheme[SchemeSel]);
+                drw_rect(drw, 0, y, mw, bh, 1, 1);
+            } else {
+                drw_setscheme(drw, scheme[SchemeNorm]);
+            }
+            if (sinks[index].active) {
+                drw_text(drw, 0, y, mw, bh, lrpad/2, "*", 0);
+            }
+            drw_text(drw, bh, y, mw-bh, bh, lrpad/2, sinks[index].name, 0);
+            y += bh;
         }
-        snprintf(buf, sizeof(buf), "%d", sinks[index].index);
-        drw_text(drw, 0, y, mw, bh, lrpad/2, buf, 0);
-        drw_text(drw, bh, y, mw-bh, bh, lrpad/2, sinks[index].name, 0);
-        y += bh;
     }
-
     drw_map(drw, win, 0, 0, mw, mh);
     sem_post(&mutex);
 }
@@ -325,50 +335,35 @@ keypress(XKeyEvent *ev)
         default:
             notChangedCounter = _notChangedCounter;
             break;
-        case XK_Up:
+        case XK_Right:
         case 0x1008ff13:
             cmd = "up";
             executeCommand();
             break;
-        case XK_Down:
+        case XK_Left:
         case 0x1008ff11:
             cmd = "down";
             executeCommand();
             break;
-        case XK_1:
-            setPlaybackSink(1);
+        case XK_Up:
+            if (selectedSink > 0) {
+                selectedSink--;
+            }
             break;
-        case XK_2:
-            setPlaybackSink(2);
+        case XK_Down:
+            if (selectedSink < sinksNum-1) {
+                selectedSink++;
+            }
             break;
-        case XK_3:
-            setPlaybackSink(3);
-            break;
-        case XK_4:
-            setPlaybackSink(4);
-            break;
-        case XK_5:
-            setPlaybackSink(5);
-            break;
-        case XK_6:
-            setPlaybackSink(6);
-            break;
-        case XK_7:
-            setPlaybackSink(7);
-            break;
-        case XK_8:
-            setPlaybackSink(8);
-            break;
-        case XK_9:
-            setPlaybackSink(9);
+        case XK_Return:
+        case XK_KP_Enter:
+            setPlaybackSink(selectedSink);
             break;
         case XK_m:
         case 0x1008ff12:
             cmd = "toggle";
             executeCommand();
             break;
-        case XK_KP_Enter:
-        case XK_Return:
         case XK_Escape:
         case XK_q:
             cleanup();
@@ -514,7 +509,9 @@ signal_callback_handler(int signum) {
     nanosleep(&ts, NULL);
 
     readAlsaVolume();
-    readSinks();
+    if (interactive) {
+        readSinks();
+    }
     draw();
 }
 
@@ -533,8 +530,7 @@ setup(void) {
     int a, di, n, area = 0;
 #endif
     notChangedCounter = 0;
-    volume = 0;
-    muted = 0;
+
     /* init appearance */
     for (j = 0; j < SchemeLast; j++) {
         scheme[j] = drw_scm_create(drw, colors[j], 2);
@@ -616,11 +612,9 @@ setup(void) {
     if (interactive) {
         grabkeyboard();
     }
-    readAlsaVolume();
-    readSinks();
+
     draw();
     signal(SIGUSR1, signal_callback_handler);
-
 }
 
 static void
@@ -652,12 +646,20 @@ main(int argc, char *argv[]) {
             mon = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-fn"))  /* font or font set */
             fonts[0] = argv[++i];
-        else if (!strcmp(argv[i], "-cmd"))  /* font or font set */
+        else if (!strcmp(argv[i], "-cmd"))
             cmd = argv[++i];
-        else if (!strcmp(argv[i], "-b"))  /* normal background color */
+        else if (!strcmp(argv[i], "-nf"))  /* normal foreground color */
+            colors[SchemeNorm][ColFg] = argv[++i];
+        else if (!strcmp(argv[i], "-nb"))  /* normal background color */
             colors[SchemeNorm][ColBg] = argv[++i];
-        else if (!strcmp(argv[i], "-sb"))  /* normal foreground color */
+        else if (!strcmp(argv[i], "-sf"))  /* selected foreground color */
+            colors[SchemeSel][ColFg] = argv[++i];
+        else if (!strcmp(argv[i], "-sb"))  /* selected background color */
             colors[SchemeSel][ColBg] = argv[++i];
+        else if (!strcmp(argv[i], "-mf"))  /* muted foreground color */
+            colors[SchemeMuted][ColFg] = argv[++i];
+        else if (!strcmp(argv[i], "-mb"))  /* muted background color */
+            colors[SchemeMuted][ColBg] = argv[++i];
         else if (!strcmp(argv[i], "-w"))   /* embedding window id */
             embed = argv[++i];
 
@@ -666,6 +668,7 @@ main(int argc, char *argv[]) {
     }
     sem_init(&mutex, 0, 1);
 
+    readAlsaVolume();
     executeCommand();
     checkSingleton();
 
@@ -684,10 +687,9 @@ main(int argc, char *argv[]) {
     if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
         die("no fonts could be loaded.");
 
-#ifdef __OpenBSD__
-    if (pledge("stdio rpath", NULL) == -1)
-        die("pledge");
-#endif
+    if (interactive) {
+        readSinks();
+    }
     setup();
     run();
 

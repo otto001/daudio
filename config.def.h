@@ -5,13 +5,19 @@
 static const char *fonts[] = {
         "monospace:size=10"
 };
-static const char *colors[SchemeLast][2] = {
+static const char *colors[SchemeLast][3] = {
         /*     fg         bg       */
+        [SchemeSel] = { "#eeeeee", "#005577" },
         [SchemeNorm] = { "#eeeeee", "#222222" },
-        [SchemeMuted] = { "#777777", "#222222" },
+        [SchemeMuted] = { "#eeeeee", "#777777" },
 };
 
 static int width = 400;
-static int height = 50;
+static int height = 150;
 
 static int interval = 33;
+static int lifetime = 2500;
+
+static int minVol = 9;
+static int maxVol = 100;
+static int step = 3;
