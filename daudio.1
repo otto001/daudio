@@ -1,8 +1,8 @@
-.TH dvol 1 dvol\-VERSION
+.TH daudio 1 daudio\-VERSION
 .SH NAME
-dvol \- dynamic audio tool
+daudio \- dynamic audio tool
 .SH SYNOPSIS
-.B dvol
+.B daudio
 .RB [ \-bfiv ]
 .RB [ \-l
 .IR lines ]
@@ -27,11 +27,11 @@ dvol \- dynamic audio tool
 .RB [ \-w
 .IR windowid ]
 .P
-.BR dvol_run " ..."
+.BR daudio_run " ..."
 .SH DESCRIPTION
-.B dvol
+.B daudio
 is a dynamic audio tool for X. It allows the user to adjust the volume and the output device.
-Only one instance can run at a time, this is handled via /tmp/dvol.pid. A render can be forced via signal SIGUSR1.
+Only one instance can run at a time, this is handled via /tmp/daudio.pid. A render can be forced via signal SIGUSR1.
 .P
 .SH OPTIONS
 .TP
@@ -42,7 +42,7 @@ which command to execute on program start. up increases volume, down decreases v
 interactive mode. Grabs keyboard.
 .TP
 .BI \-m " monitor"
-dvol is displayed on the monitor number supplied. Monitor numbers are starting
+daudio is displayed on the monitor number supplied. Monitor numbers are starting
 from 0.
 .TP
 .BI \-fn " font"
@@ -75,7 +75,7 @@ prints version information to stdout, then exits.
 .BI \-w " windowid"
 embed into windowid.
 .SH USAGE
-In interactive mode, dvol is completely controlled by the keyboard. Volume is adjusted via the arrow keys left/right,
+In interactive mode, daudio is completely controlled by the keyboard. Volume is adjusted via the arrow keys left/right,
 output devices are selected using the arrow keys up/down.
 
 .TP

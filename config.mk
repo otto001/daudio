@@ -1,4 +1,4 @@
-# dvol version
+# daudio version
 VERSION = 1.1
 
 # paths

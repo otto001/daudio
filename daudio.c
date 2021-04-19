@@ -142,7 +142,6 @@ _readAlsaVolume() {
     char val[4];
     memset(val, 0, 4);
     memcpy(val, firstBracket + 1, MIN(percentSign - firstBracket - 1, 3));
-    printf("%s", firstBracket+1);
 
     volume = (int) strtol(val, NULL, 10);
 
@@ -254,8 +253,6 @@ setPlaybackSink(int number) {
     snprintf(bigbuf, sizeof(bigbuf), "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %d &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %d &> /dev/null; done\"",
              index, index);
     run_command(bigbuf);
-    printf(bigbuf);
-    fflush(stdout);
     readAlsaVolume();
     readSinks();
 
@@ -485,12 +482,12 @@ run(void) {
 static void
 checkSingleton(void) {
     while (1) {
-        int pid_file = open("/tmp/dvol.pid", O_CREAT | O_RDWR, 0666);
+        int pid_file = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
         int rc = lockf(pid_file, F_TLOCK, 0);
         if (rc) {
-            // EACCES == errno if dvol is already running
+            // EACCES == errno if daudio is already running
             if (errno != EINTR) {
-                run_command("killall -s USR1 dvol");
+                run_command("killall -s USR1 daudio");
                 exit(0);
             }
         } else {
@@ -523,7 +520,7 @@ setup(void) {
     XIM xim;
     Window w, dw, *dws;
     XWindowAttributes wa;
-    XClassHint ch = {"dvol", "dvol"};
+    XClassHint ch = {"daudio", "daudio"};
 #ifdef XINERAMA
     XineramaScreenInfo *info;
     Window pw;
@@ -619,7 +616,7 @@ setup(void) {
 
 static void
 usage(void) {
-    fputs("usage: dvol [-bfiv] [-cmd toggle|up|down] [-i interactive] [-fn font] [-m monitor]\n"
+    fputs("usage: daudio [-bfiv] [-cmd toggle|up|down] [-fn font] [-m monitor]\n"
           "             [-b color] [-f color] [-w windowid]\n", stderr);
     exit(1);
 }
@@ -633,7 +630,7 @@ main(int argc, char *argv[]) {
 
         /* these options take no arguments */
         if (!strcmp(argv[i], "-v")) {      /* prints version information */
-            puts("dvol-"
+            puts("daudio-"
                  VERSION);
             exit(0);
         }

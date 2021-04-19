@@ -1,24 +1,24 @@
-dvol - dynamic sound
+daudio - dynamic sound
 ====================
-dvol is sound manage util for dwm.
+daudio is sound manage util for dwm.
 
 
 Requirements
 ------------
-In order to build dvol you need the Xlib header files.
+In order to build daudio you need the Xlib header files.
 
 
 Installation
 ------------
-Edit config.mk to match your local setup (dvol is installed into
+Edit config.mk to match your local setup (daudio is installed into
 the /usr/local namespace by default).
 
-Afterwards enter the following command to build and install dvol
+Afterwards enter the following command to build and install daudio
 (if necessary as root):
 
     make clean install
 
 
-Running dvol
+Running daudio
 -------------
 See the man page for details.
