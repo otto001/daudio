@@ -1,5 +1,4 @@
 /* See LICENSE file for copyright and license details. */
-#include <ctype.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +6,7 @@
 #include <strings.h>
 #include <time.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include <sys/wait.h>
 #include <sys/file.h>
@@ -17,11 +17,12 @@
 
 
 #include <X11/Xlib.h>
-#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
 #ifdef XINERAMA
+
 #include <X11/extensions/Xinerama.h>
+
 #endif
 
 #include <X11/Xft/Xft.h>
@@ -43,7 +44,7 @@ static int mon = -1, screen;
 static char interactive;
 
 static Display *dpy;
-static Window root, parentwin, win;
+static Window root, parentWin, win;
 static XIC xic;
 
 static Drw *drw;
@@ -51,16 +52,17 @@ static Clr *scheme[SchemeLast];
 
 static char muted;
 static int volume;
-static int notChangedCounter;
+static struct timespec lastDraw;
+
 
 typedef struct Sink {
     int index;
-    char active;
     char name[128];
 } Sink;
 
-static Sink* sinks;
+static Sink *sinks;
 static size_t sinksNum;
+static size_t defaultSink;
 static size_t selectedSink;
 
 static char *cmd;
@@ -72,132 +74,91 @@ static const char *toggleVolCmd[] = {"amixer", "set", "Master", "toggle", NULL};
 sem_t mutex;
 
 static void executeCommand(void);
+
 #include "config.h"
 
-static void
-difftimespec(struct timespec *res, struct timespec *a, struct timespec *b) {
-    res->tv_sec = a->tv_sec - b->tv_sec - (a->tv_nsec < b->tv_nsec);
-    res->tv_nsec = a->tv_nsec - b->tv_nsec + (a->tv_nsec < b->tv_nsec) * 1E9;
-}
 
 static void
 cleanup(void) {
-    XUngrabKey(dpy, AnyKey, AnyModifier, root);
+	if (dpy) {
+		XUngrabKey(dpy, AnyKey, AnyModifier, root);
+    	drw_free(drw);
+    	XSync(dpy, False);
+    	XCloseDisplay(dpy);
+	}
     for (size_t i = 0; i < SchemeLast; i++) {
         free(scheme[i]);
     }
     if (sinks) {
         free(sinks);
     }
-    drw_free(drw);
-    XSync(dpy, False);
-    XCloseDisplay(dpy);
+    sem_destroy(&mutex);
+
 }
 
-static int
-_readAlsaVolume() {
-    int fileDescriptors[2];
-    if (pipe(fileDescriptors) == -1) {
-        return -1;
+static void
+readAlsaVolume() {
+    const char* readVec[] = {"amixer", "get", "Master", NULL};
+    const char* readOutput = execRead(readVec[0], readVec);
+
+    if (!readOutput) {
+        die("unable to read volume");
     }
 
-    pid_t pid = fork();
-    if (pid == -1) {
-        return -1;
-    } else if (pid == 0) {
-        while ((dup2(fileDescriptors[1], STDOUT_FILENO) == -1) && (errno == EINTR)) {}
-        close(fileDescriptors[0]);
-        execlp("amixer",
-               "amixer",
-               "get",
-               "Master", NULL);
-        _exit(1);
-    }
-    close(fileDescriptors[1]);
-
-    char buffer[256];
-    memset(buffer, 0, sizeof(buffer));
-    while (1) {
-        ssize_t count = read(fileDescriptors[0], buffer, sizeof(buffer));
-        if (count == -1) {
-            if (errno == EINTR) {
-                continue;
-            } else {
-                return -1;
-            }
-        } else {
-            break;
-        }
-    }
-    close(fileDescriptors[0]);
-
-
-    const char *firstBracket = strchr(buffer, '[');
-    const char *percentSign = strchr(firstBracket, '%');
-
+    const char *firstBracket = strchr(readOutput, '[');
     const char *secondBracket = strchr(firstBracket + 1, '[');
 
-    char isOn = (char)(strncmp(secondBracket + 1, "on", 2) == 0);
+    if (!firstBracket || !secondBracket) {
+        die("unable to read volume");
+    }
 
-    char val[4];
-    memset(val, 0, 4);
-    memcpy(val, firstBracket + 1, MIN(percentSign - firstBracket - 1, 3));
-
-    volume = (int) strtol(val, NULL, 10);
-
-    muted = (char) !isOn;
-
-    waitpid(pid, NULL, 0);
-    return 0;
-}
-
-static int readAlsaVolume() {
     sem_wait(&mutex);
-    int result = _readAlsaVolume();
-
+    volume = (int) strtol(firstBracket + 1, NULL, 10);
+    muted = (char) (strncmp(secondBracket + 1, "on", 2) != 0);
     sem_post(&mutex);
-    return result;
+
 }
 
 static int readSinks() {
-    char* sinksRaw = run_command("pacmd list-sinks | sed -n -E 's/(index:|device\\.description = )//p' | sed 's/^[ \\t]*//' | sed -z 's/\\n/;/g'");
+    char *sinksRaw = runCommand(
+            "pacmd list-sinks | sed -n -E 's/(index:|device\\.description = )//p'");
     if (sinksRaw) {
         int occurrences = 0;
-        for (const char* s=sinksRaw; s[occurrences]; s[occurrences] == ';' ? occurrences++ : *s++);
+        for (const char *s = sinksRaw; s[occurrences]; s[occurrences] == '\n' ? occurrences++ : *s++);
+        sinksNum = ((occurrences + 1) / 2);
+
         int index = 0;
 
         if (sinks) {
             free(sinks);
-            sinks = NULL;
         }
-        sinksNum = ((occurrences+1)/2);
-        sinks = malloc(sizeof(Sink)*sinksNum);
+        sinks = malloc(sizeof(Sink) * sinksNum);
 
-        char *ptr = strtok(sinksRaw, ";");
+        char *ptr = strtok(sinksRaw, "\n");
         char *indexPtr = NULL;
 
-        while(ptr != NULL) {
+        while (ptr != NULL) {
             if (indexPtr != NULL) {
-                ptr++;
-                if (indexPtr[0] == '*') {
-                    sinks[index].active = 1;
-                    selectedSink = index;
+                while (!isdigit(*indexPtr)) {
+                	if (*indexPtr == '*') {
+     	                defaultSink = selectedSink = index;
+     	                break;
+                	}
                     indexPtr++;
-                } else {
-                    sinks[index].active = 0;
                 }
                 sinks[index].index = (int) strtol(indexPtr, NULL, 10);
-                char* name = sinks[index].name;
+                char *name = sinks[index].name;
+                ptr = strchr(ptr, '"') + 1;
                 snprintf(name, sizeof(sinks[0].name), "%s", ptr);
-                if (name[strlen(name)-1] == '"') {
-                    name[strlen(name)-1] = '\0';
+                if (name[strlen(name) - 1] == '"') {
+                    name[strlen(name) - 1] = '\0';
                 }
                 index++;
                 indexPtr = NULL;
             } else {
                 indexPtr = ptr;
             }
-            ptr = strtok(NULL, ";");
+            ptr = strtok(NULL, "\n");
         }
 
     }
@@ -217,9 +178,9 @@ executeCommand(void) {
     } else {
         int volumeStep;
 
-        if (!strcmp(cmd, "up")) {
+        if (!strcmp(cmd, "inc")) {
             volumeStep = step;
-        } else if (!strcmp(cmd, "down")) {
+        } else if (!strcmp(cmd, "dec")) {
             volumeStep = -step;
         } else {
             return;
@@ -230,40 +191,38 @@ executeCommand(void) {
         cmdVec = setVolCmd;
     }
 
-    if (cmdVec == NULL) {
-        return;
-    }
-    pid_t pid = fork();
-    if (pid == -1) {
-        return;
-    } else if (pid == 0) {
-        int pipes[2];
-        pipe(pipes);
-        dup2(pipes[1], 1);
+    pid_t child = fork();
+    if (child == -1) {
+        die("fork: %d", errno);
+    } else if (child == 0) {
+        int fd = open("/dev/null", O_WRONLY);
+        dup2(fd, 1);
+        dup2(fd, 2);
         execvp(cmdVec[0], (char *const *) cmdVec);
         _exit(1);
     }
+    waitpid(child, NULL, 0);
 }
 
 static void
 setPlaybackSink(int number) {
     int index = sinks[number].index;
 
-    char bigbuf[512];
-    snprintf(bigbuf, sizeof(bigbuf), "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %d &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %d &> /dev/null; done\"",
+    char bigBuf[256];
+    snprintf(bigBuf, sizeof(bigBuf),
+             "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %d &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %d &> /dev/null; done\"",
              index, index);
-    run_command(bigbuf);
+    runCommand(bigBuf);
     readAlsaVolume();
     readSinks();
-
 }
 
 static void
 draw(void) {
     sem_wait(&mutex);
 
-    int barHeight = (int) 1.5f*bh;
-    int newMh = (int) barHeight + (interactive ? bh + bh*sinksNum : 0);
+    int barHeight = (int) 1.5f * bh;
+    int newMh = (int) (barHeight + (interactive ? bh + bh * sinksNum : 0));
 
     if (mh != newMh) {
         mh = newMh;
@@ -275,7 +234,7 @@ draw(void) {
 
     if (volume >= minVol && volume <= 100) {
         double volumeRatio = ((double) (volume - minVol)) / ((double) (maxVol - minVol));
-        int w = (int) mw * volumeRatio;
+        int w = (int) (mw * volumeRatio);
         w = MIN(w, mw);
         if (muted) {
             drw_setscheme(drw, scheme[SchemeMuted]);
@@ -299,21 +258,23 @@ draw(void) {
             } else {
                 drw_setscheme(drw, scheme[SchemeNorm]);
             }
-            if (sinks[index].active) {
-                drw_text(drw, 0, y, mw, bh, lrpad/2, "*", 0);
+            if (index == defaultSink) {
+                drw_text(drw, 0, y, mw, bh, lrpad / 2, "*", 0);
             }
-            drw_text(drw, bh, y, mw-bh, bh, lrpad/2, sinks[index].name, 0);
+            drw_text(drw, bh, y, mw - bh, bh, lrpad / 2, sinks[index].name, 0);
             y += bh;
         }
     }
     drw_map(drw, win, 0, 0, mw, mh);
+
+    if (clock_gettime(CLOCK_MONOTONIC, &lastDraw) < 0) {
+        die("clock_gettime:");
+    }
     sem_post(&mutex);
 }
 
 static void
-keypress(XKeyEvent *ev)
-{
-    char buf[32];
+keypress(XKeyEvent *ev) {
     KeySym ksym;
     Status status;
 
@@ -325,21 +286,17 @@ keypress(XKeyEvent *ev)
         case XLookupBoth:
             break;
     }
-    int _notChangedCounter = notChangedCounter;
-    notChangedCounter = 0;
-
-    switch(ksym) {
+    switch (ksym) {
         default:
-            notChangedCounter = _notChangedCounter;
-            break;
+            return;
         case XK_Right:
         case 0x1008ff13:
-            cmd = "up";
+            cmd = "inc";
             executeCommand();
             break;
         case XK_Left:
         case 0x1008ff11:
-            cmd = "down";
+            cmd = "dec";
             executeCommand();
             break;
         case XK_Up:
@@ -348,7 +305,7 @@ keypress(XKeyEvent *ev)
             }
             break;
         case XK_Down:
-            if (selectedSink < sinksNum-1) {
+            if (selectedSink < sinksNum - 1) {
                 selectedSink++;
             }
             break;
@@ -363,16 +320,14 @@ keypress(XKeyEvent *ev)
             break;
         case XK_Escape:
         case XK_q:
-            cleanup();
             exit(0);
     }
     draw();
 }
 
 static void
-grabfocus(void)
-{
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = 10000000  };
+grabfocus(void) {
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
     Window focuswin;
     int i, revertwin;
 
@@ -387,9 +342,8 @@ grabfocus(void)
 }
 
 static void
-grabkeyboard(void)
-{
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000  };
+grabkeyboard(void) {
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};
     int i;
 
     if (embed)
@@ -424,7 +378,6 @@ handleEvents(void) {
             case DestroyNotify:
                 if (ev.xdestroywindow.window != win)
                     break;
-                cleanup();
                 exit(1);
             case Expose:
                 if (ev.xexpose.count == 0)
@@ -440,69 +393,61 @@ handleEvents(void) {
 
 static void
 run(void) {
-    struct timespec start, current, diff, intspec, wait;
+    struct timespec start, current, diff, intervalSpec, wait;
+    timespecSetMs(&intervalSpec, interval);
 
-
-    while (1) {
-
-
-        handleEvents();
+    for (;;) {
 
         if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
             die("clock_gettime:");
         }
 
-        notChangedCounter++;
-        if (notChangedCounter >= lifetime / interval) {
-            cleanup();
+        timespecDiff(&diff, &start, &lastDraw);
+        if (timespecToMs(&diff) > lifetime) {
             exit(0);
         }
+
+        handleEvents();
 
         if (clock_gettime(CLOCK_MONOTONIC, &current) < 0) {
             die("clock_gettime:");
         }
-        difftimespec(&diff, &current, &start);
 
-        intspec.tv_sec = interval / 1000;
-        intspec.tv_nsec = (interval % 1000) * 1E6;
-        difftimespec(&wait, &intspec, &diff);
+        timespecDiff(&diff, &current, &start);
+        timespecDiff(&wait, &intervalSpec, &diff);
 
-        if (wait.tv_sec >= 0) {
+        if (wait.tv_sec >= 0 && wait.tv_nsec >= 0) {
             if (nanosleep(&wait, NULL) < 0 && errno != EINTR) {
                 die("nanosleep:");
             }
         }
-
-
     }
-
 }
-
 
 static void
 checkSingleton(void) {
-    while (1) {
-        int pid_file = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
-        int rc = lockf(pid_file, F_TLOCK, 0);
-        if (rc) {
-            // EACCES == errno if daudio is already running
-            if (errno != EINTR) {
-                run_command("killall -s USR1 daudio");
-                exit(0);
-            }
-        } else {
-            // singleton, can continue
-            return;
+    int pidFile = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
+    if (pidFile < 0) {
+        die("error open '/tmp/daudio.pid' errno: %d", errno);
+    }
+    while (lockf(pidFile, F_TLOCK, 0) == -1) {
+        if (errno != EINTR) {
+            ssize_t n = read(pidFile, buf, sizeof(buf));
+            buf[n] = '\0';
+            pid_t singletonPid = strtol(buf, NULL, 10);
+            kill(singletonPid, SIGUSR1);
+            exit(0);
         }
     }
-
+    snprintf(buf, sizeof(buf), "%d", getpid());
+    write(pidFile, buf, strlen(buf)+1);
 }
 
 void
-signal_callback_handler(int signum) {
-    notChangedCounter = 0;
+onSigUsr1(int _unused) {
+    (void)_unused;
 
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = 10000000  };
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
     nanosleep(&ts, NULL);
 
     readAlsaVolume();
@@ -526,7 +471,6 @@ setup(void) {
     Window pw;
     int a, di, n, area = 0;
 #endif
-    notChangedCounter = 0;
 
     /* init appearance */
     for (j = 0; j < SchemeLast; j++) {
@@ -534,12 +478,12 @@ setup(void) {
     }
 
     /* calculate menu geometry */
-    bh = drw->fonts->h + 2;
-    lrpad = drw->fonts->h;
+    bh = (int) drw->fonts->h + 2;
+    lrpad = (int) drw->fonts->h;
     mh = height;
 #ifdef XINERAMA
     i = 0;
-    if (parentwin == root && (info = XineramaQueryScreens(dpy, &n))) {
+    if (parentWin == root && (info = XineramaQueryScreens(dpy, &n))) {
         XGetInputFocus(dpy, &w, &di);
         if (mon >= 0 && mon < n)
             i = mon;
@@ -564,15 +508,15 @@ setup(void) {
                     break;
 
         mw = MIN(MAX(width, 100), info[i].width);
-        x = info[i].x_org + ((info[i].width  - mw) / 2);
+        x = info[i].x_org + ((info[i].width - mw) / 2);
         y = info[i].y_org + ((info[i].height - mh) / 2);
         XFree(info);
     } else
 #endif
     {
-        if (!XGetWindowAttributes(dpy, parentwin, &wa))
+        if (!XGetWindowAttributes(dpy, parentWin, &wa))
             die("could not get embedding window attributes: 0x%lx",
-                parentwin);
+                parentWin);
         mw = MIN(MAX(width, 100), wa.width);
         x = (wa.width - mw) / 2;
         y = (wa.height - mh) / 2;
@@ -582,7 +526,7 @@ setup(void) {
     swa.override_redirect = True;
     swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
     swa.event_mask = ExposureMask | KeyPressMask | VisibilityChangeMask;
-    win = XCreateWindow(dpy, parentwin, x, y, mw, mh, 0,
+    win = XCreateWindow(dpy, parentWin, x, y, mw, mh, 0,
                         CopyFromParent, CopyFromParent, CopyFromParent,
                         CWOverrideRedirect | CWBackPixel | CWEventMask, &swa);
     XSetClassHint(dpy, win, &ch);
@@ -597,8 +541,8 @@ setup(void) {
 
     XMapRaised(dpy, win);
     if (embed) {
-        XSelectInput(dpy, parentwin, FocusChangeMask | SubstructureNotifyMask);
-        if (XQueryTree(dpy, parentwin, &dw, &w, &dws, &du) && dws) {
+        XSelectInput(dpy, parentWin, FocusChangeMask | SubstructureNotifyMask);
+        if (XQueryTree(dpy, parentWin, &dw, &w, &dws, &du) && dws) {
             for (i = 0; i < du && dws[i] != win; ++i)
                 XSelectInput(dpy, dws[i], FocusChangeMask);
             XFree(dws);
@@ -611,13 +555,12 @@ setup(void) {
     }
 
     draw();
-    signal(SIGUSR1, signal_callback_handler);
 }
 
 static void
 usage(void) {
-    fputs("usage: daudio [-bfiv] [-cmd toggle|up|down] [-fn font] [-m monitor]\n"
-          "             [-b color] [-f color] [-w windowid]\n", stderr);
+    fputs("usage:  daudio [-iv] [-cmd inc|dec|toggle] [-m monitor] [-fn font] ["
+          "-nb color] [-nf color] [-sb color] [-sf color] [-mb color] [-mf color] [-w windowid]\n", stderr);
     exit(1);
 }
 
@@ -633,14 +576,13 @@ main(int argc, char *argv[]) {
             puts("daudio-"
                  VERSION);
             exit(0);
-        }
-        else if (!strcmp(argv[i], "-i"))
+        } else if (!strcmp(argv[i], "-i"))
             interactive = 1;
         else if (i + 1 == argc)
             usage();
             /* these options take one argument */
         else if (!strcmp(argv[i], "-m"))
-            mon = atoi(argv[++i]);
+            mon = (int) strtol(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "-fn"))  /* font or font set */
             fonts[0] = argv[++i];
         else if (!strcmp(argv[i], "-cmd"))
@@ -665,6 +607,18 @@ main(int argc, char *argv[]) {
     }
     sem_init(&mutex, 0, 1);
 
+    int e = atexit(cleanup);
+    if (e != 0) {
+        die("cannot set exit function");
+    }
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = onSigUsr1;
+    sigaction(SIGUSR1, &sa, NULL);
+    sa.sa_handler = exit;
+    sigaction(SIGINT, &sa, NULL);
+
     readAlsaVolume();
     executeCommand();
     checkSingleton();
@@ -675,11 +629,11 @@ main(int argc, char *argv[]) {
         die("cannot open display");
     screen = DefaultScreen(dpy);
     root = RootWindow(dpy, screen);
-    if (!embed || !(parentwin = strtol(embed, NULL, 0)))
-        parentwin = root;
-    if (!XGetWindowAttributes(dpy, parentwin, &wa))
+    if (!embed || !(parentWin = strtol(embed, NULL, 0)))
+        parentWin = root;
+    if (!XGetWindowAttributes(dpy, parentWin, &wa))
         die("could not get embedding window attributes: 0x%lx",
-            parentwin);
+            parentWin);
     drw = drw_create(dpy, screen, root, wa.width, wa.height);
     if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
         die("no fonts could be loaded.");

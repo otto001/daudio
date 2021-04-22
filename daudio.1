@@ -3,13 +3,11 @@
 daudio \- dynamic audio tool
 .SH SYNOPSIS
 .B daudio
-.RB [ \-bfiv ]
-.RB [ \-l
-.IR lines ]
+.RB [ \-iv ]
+.RB [ \-cmd
+.IR inc|dec|toggle ]
 .RB [ \-m
 .IR monitor ]
-.RB [ \-p
-.IR prompt ]
 .RB [ \-fn
 .IR font ]
 .RB [ \-nb
@@ -27,7 +25,6 @@ daudio \- dynamic audio tool
 .RB [ \-w
 .IR windowid ]
 .P
-.BR daudio_run " ..."
 .SH DESCRIPTION
 .B daudio
 is a dynamic audio tool for X. It allows the user to adjust the volume and the output device.
@@ -35,7 +32,7 @@ Only one instance can run at a time, this is handled via /tmp/daudio.pid. A rend
 .P
 .SH OPTIONS
 .TP
-.BI \-cmd " up|down|toggle"
+.BI \-cmd " inc|dec|toggle"
 which command to execute on program start. up increases volume, down decreases volume, toggle (un-)mutes.
 .TP
 .BI \-i

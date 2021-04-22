@@ -6,4 +6,10 @@
 
 void die(const char *fmt, ...);
 void *ecalloc(size_t nmemb, size_t size);
-char * run_command(const char *cmd);
+char * runCommand(const char *cmd);
+void timespecAddMs(struct timespec *ts, int32_t ms);
+void timespecSetMs(struct timespec *ts, int32_t ms);
+int32_t timespecToMs(struct timespec *ts);
+void timespecDiff(struct timespec *res, struct timespec *a, struct timespec *b);
+int timespecGte(struct timespec *a, struct timespec *b);
+const char* execRead(const char *file, const char *params[]);
