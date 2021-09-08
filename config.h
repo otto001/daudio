@@ -21,3 +21,4 @@ static int lifetime = 2500;
 static int minVol = 9;
 static int maxVol = 100;
 static int step = 3;
+static char varStep = 1;

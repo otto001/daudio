@@ -7,6 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <math.h>
 
 #include <sys/wait.h>
 #include <sys/file.h>
@@ -24,7 +25,6 @@
 #include <X11/extensions/Xinerama.h>
 
 #endif
-
 #include <X11/Xft/Xft.h>
 
 #include "drw.h"
@@ -176,15 +176,18 @@ executeCommand(void) {
         cmdVec = toggleVolCmd;
         muted = (char) !muted;
     } else {
-        int volumeStep;
+        int volumeStep = step;
 
-        if (!strcmp(cmd, "inc")) {
-            volumeStep = step;
-        } else if (!strcmp(cmd, "dec")) {
-            volumeStep = -step;
-        } else {
+        if (varStep) {
+            volumeStep =  1 + (int) round((volumeStep-1) * (((double) volume-minVol)/(maxVol-minVol)));
+        }
+
+        if (strcmp(cmd, "dec") == 0) {
+            volumeStep = -volumeStep;
+        } else if (strcmp(cmd, "inc") != 0) {
             return;
         }
+
         volume += volumeStep;
         volume = MAX(minVol, MIN(maxVol, volume));
         snprintf(buf, sizeof(buf), "%d%%", volume);
@@ -243,7 +246,6 @@ draw(void) {
         }
 
         drw_rect(drw, 0, 0, w, barHeight, 1, 1);
-
     }
     if (interactive) {
         drw_setscheme(drw, scheme[SchemeNorm]);
