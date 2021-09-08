@@ -18,7 +18,7 @@ static int height = 150;
 static int interval = 33;
 static int lifetime = 2500;
 
-static int minVol = 9;
-static int maxVol = 100;
-static int step = 3;
-static char varStep = 1;
+static double minVol = 0.09;
+static double maxVol = 1.0;
+static double maxVolStep = 0.03;
+static double minVolStep = 0.01;

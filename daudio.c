@@ -52,6 +52,7 @@ static Clr *scheme[SchemeLast];
 
 static char muted;
 static int volume;
+static int volumeLimit = 65535;
 static struct timespec lastDraw;
 
 
@@ -107,16 +108,18 @@ readAlsaVolume() {
 
     const char *firstBracket = strchr(readOutput, '[');
     const char *secondBracket = strchr(firstBracket + 1, '[');
+    const char *volumeStart = firstBracket-2;
+    for (; volumeStart > readOutput && *volumeStart != ' '; --volumeStart) {
+    }
 
     if (!firstBracket || !secondBracket) {
         die("unable to read volume");
     }
 
     sem_wait(&mutex);
-    volume = (int) strtol(firstBracket + 1, NULL, 10);
+    volume = (int) strtol(volumeStart+1, NULL, 10);
     muted = (char) (strncmp(secondBracket + 1, "on", 2) != 0);
     sem_post(&mutex);
-
 }
 
 static int readSinks() {
@@ -165,6 +168,11 @@ static int readSinks() {
     return 0;
 }
 
+static double
+getVolumeRatio(void) {
+    return ((double) (volume - minVol*volumeLimit)) / ((double) volumeLimit*(maxVol - minVol));
+}
+
 static void
 executeCommand(void) {
     if (cmd == NULL) {
@@ -176,11 +184,9 @@ executeCommand(void) {
         cmdVec = toggleVolCmd;
         muted = (char) !muted;
     } else {
-        int volumeStep = step;
 
-        if (varStep) {
-            volumeStep =  1 + (int) round((volumeStep-1) * (((double) volume-minVol)/(maxVol-minVol)));
-        }
+        double volumeStep =  (minVolStep + (maxVolStep - minVolStep) * getVolumeRatio()) *
+                (volumeLimit*maxVol-volumeLimit*minVol);
 
         if (strcmp(cmd, "dec") == 0) {
             volumeStep = -volumeStep;
@@ -188,9 +194,9 @@ executeCommand(void) {
             return;
         }
 
-        volume += volumeStep;
-        volume = MAX(minVol, MIN(maxVol, volume));
-        snprintf(buf, sizeof(buf), "%d%%", volume);
+        volume += (int) (volumeStep + 0.5);
+        volume = MAX(minVol*volumeLimit, MIN(maxVol*volumeLimit, volume));
+        snprintf(buf, sizeof(buf), "%d", volume);
         cmdVec = setVolCmd;
     }
 
@@ -235,8 +241,8 @@ draw(void) {
     drw_setscheme(drw, scheme[SchemeNorm]);
     drw_rect(drw, 0, 0, mw, mh, 1, 1);
 
-    if (volume >= minVol && volume <= 100) {
-        double volumeRatio = ((double) (volume - minVol)) / ((double) (maxVol - minVol));
+    double volumeRatio = getVolumeRatio();
+    if (volumeRatio >= 0) {
         int w = (int) (mw * volumeRatio);
         w = MIN(w, mw);
         if (muted) {
