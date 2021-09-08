@@ -443,7 +443,11 @@ checkSingleton(void) {
             ssize_t n = read(pidFile, buf, sizeof(buf));
             buf[n] = '\0';
             pid_t singletonPid = strtol(buf, NULL, 10);
-            kill(singletonPid, SIGUSR1);
+            if (interactive) {
+                kill(singletonPid, SIGUSR2);
+            } else {
+                kill(singletonPid, SIGUSR1);
+            }
             exit(0);
         }
     }
@@ -452,17 +456,33 @@ checkSingleton(void) {
 }
 
 void
-onSigUsr1(int _unused) {
-    (void)_unused;
-
-    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
-    nanosleep(&ts, NULL);
-
+update() {
     readAlsaVolume();
     if (interactive) {
         readSinks();
     }
     draw();
+}
+
+void
+onSigUsr1(int _unused) {
+    (void)_unused;
+
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
+    nanosleep(&ts, NULL);
+    update();
+}
+
+void
+onSigUsr2(int _unused) {
+    (void)_unused;
+
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
+    nanosleep(&ts, NULL);
+
+    interactive = 1;
+    grabkeyboard();
+    update();
 }
 
 static void
@@ -624,6 +644,8 @@ main(int argc, char *argv[]) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = onSigUsr1;
     sigaction(SIGUSR1, &sa, NULL);
+    sa.sa_handler = onSigUsr2;
+    sigaction(SIGUSR2, &sa, NULL);
     sa.sa_handler = exit;
     sigaction(SIGINT, &sa, NULL);
 
