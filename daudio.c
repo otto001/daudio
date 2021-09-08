@@ -170,7 +170,10 @@ static int readSinks() {
 
 static double
 getVolumeRatio(void) {
-    return ((double) (volume - minVol*volumeLimit)) / ((double) volumeLimit*(maxVol - minVol));
+    double result = ((double) (volume - minVol*volumeLimit)) / ((double) volumeLimit*(maxVol - minVol));
+    result = MAX(result, 0);
+    result = MIN(result, 1);
+    return result;
 }
 
 static void
@@ -187,15 +190,24 @@ executeCommand(void) {
 
         double volumeStep =  (minVolStep + (maxVolStep - minVolStep) * getVolumeRatio()) *
                 (volumeLimit*maxVol-volumeLimit*minVol);
-
+        volumeStep = MAX(1.0, volumeStep);
         if (strcmp(cmd, "dec") == 0) {
             volumeStep = -volumeStep;
         } else if (strcmp(cmd, "inc") != 0) {
             return;
         }
 
+        // Ensure that previous volume is within limits.
+        // Without this, edge case can occur where the first/last step needs to be fired twice
+        volume = MAX(minVol*volumeLimit, volume);
+        volume = MIN(maxVol*volumeLimit, volume);
+
         volume += (int) (volumeStep + 0.5);
-        volume = MAX(minVol*volumeLimit, MIN(maxVol*volumeLimit, volume));
+
+        // Ensure that new volume is within limits.
+        volume = MAX(minVol*volumeLimit, volume);
+        volume = MIN(maxVol*volumeLimit, volume);
+
         snprintf(buf, sizeof(buf), "%d", volume);
         cmdVec = setVolCmd;
     }
@@ -253,6 +265,7 @@ draw(void) {
 
         drw_rect(drw, 0, 0, w, barHeight, 1, 1);
     }
+
     if (interactive) {
         drw_setscheme(drw, scheme[SchemeNorm]);
 
