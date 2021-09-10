@@ -122,12 +122,12 @@ readAlsaVolume() {
 
 static int readSinks() {
     char *sinksRaw = runCommand(
-            "pacmd list-sinks | sed -n -E 's/(index:|device\\.product\\.name = )//p'");
+            "pacmd list-sinks | sed -n -E 's/(index:|^\t\tdevice\\.product\\.name = )//p'");
+    const char *sinksRawEnd = sinksRaw + strlen(sinksRaw);
     if (sinksRaw) {
         int occurrences = 0;
         for (const char *s = sinksRaw; s[occurrences]; s[occurrences] == '\n' ? occurrences++ : *s++);
-        sinksNum = ((occurrences - 1) / 2);
-        printf("%zu   %d", sinksNum, occurrences);
+        sinksNum = ((occurrences + 1) / 2);
 
         int index = 0;
 
@@ -141,7 +141,7 @@ static int readSinks() {
 
         while (ptr != NULL) {
             if (indexPtr != NULL) {
-                while (!isdigit(*indexPtr)) {
+                while (!isdigit(*indexPtr) && indexPtr != sinksRawEnd) {
                 	if (*indexPtr == '*') {
      	                defaultSink = selectedSink = index;
      	                break;
@@ -701,6 +701,7 @@ main(int argc, char *argv[]) {
     if (interactive) {
         readSinks();
     }
+
     setup();
     run();
 
