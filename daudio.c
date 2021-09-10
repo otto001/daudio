@@ -74,8 +74,6 @@ static const char *toggleVolCmd[] = {"amixer", "set", "Master", "toggle", NULL};
 
 sem_t mutex;
 
-static void executeCommand(void);
-
 #include "config.h"
 
 
@@ -124,11 +122,12 @@ readAlsaVolume() {
 
 static int readSinks() {
     char *sinksRaw = runCommand(
-            "pacmd list-sinks | sed -n -E 's/(index:|device\\.description = )//p'");
+            "pacmd list-sinks | sed -n -E 's/(index:|device\\.product\\.name = )//p'");
     if (sinksRaw) {
         int occurrences = 0;
         for (const char *s = sinksRaw; s[occurrences]; s[occurrences] == '\n' ? occurrences++ : *s++);
-        sinksNum = ((occurrences + 1) / 2);
+        sinksNum = ((occurrences - 1) / 2);
+        printf("%zu   %d", sinksNum, occurrences);
 
         int index = 0;
 
@@ -177,55 +176,7 @@ getVolumeRatio(void) {
 }
 
 static void
-executeCommand(void) {
-    if (cmd == NULL) {
-        return;
-    }
-    const char **cmdVec;
-
-    if (!strcmp(cmd, "toggle")) {
-        cmdVec = toggleVolCmd;
-        muted = (char) !muted;
-    } else {
-
-        double volumeStep =  (minVolStep + (maxVolStep - minVolStep) * getVolumeRatio()) *
-                (volumeLimit*maxVol-volumeLimit*minVol);
-        volumeStep = MAX(1.0, volumeStep);
-        if (strcmp(cmd, "dec") == 0) {
-            volumeStep = -volumeStep;
-        } else if (strcmp(cmd, "inc") != 0) {
-            return;
-        }
-
-        // Ensure that previous volume is within limits.
-        // Without this, edge case can occur where the first/last step needs to be fired twice
-        if (volume <= minVol*volumeLimit*1.001) {
-            volume = MAX((int)(minVol*volumeLimit + 0.5), volume);
-            if (muted) {
-                cmd = "toggle";
-                executeCommand();
-            }
-         } else {
-         	 volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
-         }
-
-
-        volume += (int) (volumeStep + 0.5);
-
-        // Ensure that new volume is within limits.
-        if (volume <= minVol*volumeLimit) {
-        	volume = (int) (minVol*volumeLimit+0.5);
-        	if (!muted) {
-        		cmd = "toggle";
-        		executeCommand();
-        	}
-        } else {
-        	volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
-        }
-        snprintf(buf, sizeof(buf), "%d", volume);
-        cmdVec = setVolCmd;
-    }
-
+executeCommand(const char **cmdVec) {
     pid_t child = fork();
     if (child == -1) {
         die("fork: %d", errno);
@@ -237,6 +188,61 @@ executeCommand(void) {
         _exit(1);
     }
     waitpid(child, NULL, 0);
+}
+
+static void
+toggleMute() {
+    executeCommand(toggleVolCmd);
+    muted = (char) !muted;
+}
+
+static void
+changeVolume(int direction) {
+    double volumeStep =  (minVolStep + (maxVolStep - minVolStep) * getVolumeRatio()) *
+                         (volumeLimit*maxVol-volumeLimit*minVol);
+    volumeStep = MAX(1.0, volumeStep);
+    volumeStep *= direction;
+
+    // Ensure that previous volume is within limits.
+    // Without this, edge case can occur where the first/last step needs to be fired twice
+    if (volume <= minVol*volumeLimit*1.001) {
+        volume = MAX((int)(minVol*volumeLimit + 0.5), volume);
+        if (muted) {
+            toggleMute();
+        }
+    } else {
+        volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+    }
+
+
+    volume += (int) (volumeStep + 0.5);
+
+    // Ensure that new volume is within limits.
+    if (volume <= minVol*volumeLimit) {
+        volume = (int) (minVol*volumeLimit+0.5);
+        if (!muted) {
+            toggleMute();
+        }
+    } else {
+        volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+    }
+    snprintf(buf, sizeof(buf), "%d", volume);
+    executeCommand(setVolCmd);
+}
+
+static void
+executeCliCommand(void) {
+    if (cmd == NULL) {
+        return;
+    }
+
+    if (strcmp(cmd, "toggle") == 0) {
+        toggleMute();
+    } else if (strcmp(cmd, "inc") == 0){
+        changeVolume(1);
+    } else if (strcmp(cmd, "dec") == 0) {
+        changeVolume(-1);
+    }
 }
 
 static void
@@ -326,13 +332,11 @@ keypress(XKeyEvent *ev) {
             return;
         case XK_Right:
         case 0x1008ff13:
-            cmd = "inc";
-            executeCommand();
+            changeVolume(1);
             break;
         case XK_Left:
         case 0x1008ff11:
-            cmd = "dec";
-            executeCommand();
+            changeVolume(-1);
             break;
         case XK_Up:
             if (selectedSink > 0) {
@@ -350,8 +354,7 @@ keypress(XKeyEvent *ev) {
             break;
         case XK_m:
         case 0x1008ff12:
-            cmd = "toggle";
-            executeCommand();
+            toggleMute();
             break;
         case XK_Escape:
         case XK_q:
@@ -677,7 +680,7 @@ main(int argc, char *argv[]) {
     sigaction(SIGINT, &sa, NULL);
 
     readAlsaVolume();
-    executeCommand();
+    executeCliCommand();
     checkSingleton();
 
     if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
