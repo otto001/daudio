@@ -12,7 +12,7 @@ static const char *colors[SchemeLast][3] = {
 	    [SchemeMuted] = { "#eeeeee", "#777777" },
 };
 
-static int width = 900;
+static int width = 800;
 static int height = 150;
 
 static int interval = 33;
