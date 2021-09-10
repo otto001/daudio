@@ -199,15 +199,29 @@ executeCommand(void) {
 
         // Ensure that previous volume is within limits.
         // Without this, edge case can occur where the first/last step needs to be fired twice
-        volume = MAX(minVol*volumeLimit, volume);
-        volume = MIN(maxVol*volumeLimit, volume);
+        if (volume <= minVol*volumeLimit*1.001) {
+            volume = MAX((int)(minVol*volumeLimit + 0.5), volume);
+            if (muted) {
+                cmd = "toggle";
+                executeCommand();
+            }
+         } else {
+         	 volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+         }
+
 
         volume += (int) (volumeStep + 0.5);
 
         // Ensure that new volume is within limits.
-        volume = MAX(minVol*volumeLimit, volume);
-        volume = MIN(maxVol*volumeLimit, volume);
-
+        if (volume <= minVol*volumeLimit) {
+        	volume = (int) (minVol*volumeLimit+0.5);
+        	if (!muted) {
+        		cmd = "toggle";
+        		executeCommand();
+        	}
+        } else {
+        	volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+        }
         snprintf(buf, sizeof(buf), "%d", volume);
         cmdVec = setVolCmd;
     }
