@@ -169,7 +169,7 @@ static int readSinks() {
 
 static double
 getVolumeRatio(void) {
-    double result = ((double) (volume - minVol*volumeLimit)) / ((double) volumeLimit*(maxVol - minVol));
+    double result = ((double) (volume - minVolumeFactor * volumeLimit)) / ((double) volumeLimit * (maxVolumeFactor - minVolumeFactor));
     result = MAX(result, 0);
     result = MIN(result, 1);
     return result;
@@ -198,33 +198,37 @@ toggleMute() {
 
 static void
 changeVolume(int direction) {
-    double volumeStep =  (minVolStep + (maxVolStep - minVolStep) * getVolumeRatio()) *
-                         (volumeLimit*maxVol-volumeLimit*minVol);
+    int maxVolume = (int)(maxVolumeFactor * volumeLimit + 0.5);
+    int minVolume = (int)(minVolumeFactor * volumeLimit + 0.5);
+
+
+    double volumeStep = (minVolumeStep + (maxVolumeStep - minVolumeStep) * getVolumeRatio()) *
+                        (maxVolume-minVolume);
     volumeStep = MAX(1.0, volumeStep);
     volumeStep *= direction;
 
     // Ensure that previous volume is within limits.
     // Without this, edge case can occur where the first/last step needs to be fired twice
-    if (volume <= minVol*volumeLimit*1.001) {
-        volume = MAX((int)(minVol*volumeLimit + 0.5), volume);
+    if (volume <= minVolumeFactor * volumeLimit * 1.001) {
+        volume = MAX(minVolume, volume);
         if (muted) {
             toggleMute();
         }
     } else {
-        volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+        volume = MIN(maxVolume, volume);
     }
 
 
     volume += (int) (volumeStep + 0.5);
 
     // Ensure that new volume is within limits.
-    if (volume <= minVol*volumeLimit) {
-        volume = (int) (minVol*volumeLimit+0.5);
+    if (volume <= minVolumeFactor * volumeLimit) {
+        volume = (int) (minVolumeFactor * volumeLimit + 0.5);
         if (!muted) {
             toggleMute();
         }
-    } else {
-        volume = MIN((int)(maxVol*volumeLimit + 0.5), volume);
+    } else if (volume >= maxVolume*0.995) {
+        volume = maxVolume;
     }
     snprintf(buf, sizeof(buf), "%d", volume);
     executeCommand(setVolCmd);
@@ -401,7 +405,6 @@ handleEvents(void) {
     XEvent ev;
 
     while (XPending(dpy) && !XNextEvent(dpy, &ev)) {
-
         if (XFilterEvent(&ev, win))
             continue;
         switch (ev.type) {
