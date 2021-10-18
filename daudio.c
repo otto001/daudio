@@ -629,6 +629,8 @@ int
 main(int argc, char *argv[]) {
     XWindowAttributes wa;
     int i;
+    struct sigaction sa;
+
     interactive = 0;
     for (i = 1; i < argc; i++) {
 
@@ -673,7 +675,6 @@ main(int argc, char *argv[]) {
         die("cannot set exit function");
     }
 
-    struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = onSigUsr1;
     sigaction(SIGUSR1, &sa, NULL);
