@@ -338,27 +338,45 @@ static void handle_events(void) {
     }
 }
 
-static void handle_pulse_updates() {
-    if (get_updates()) {
-        pulse_lock();
-        const PulseSink *sinks = get_sinks();
-        const PulseSink *default_sink = get_default_sink();
+static void update_selected_sink() {
+    pulse_lock();
+    const PulseSink *sinks = get_sinks();
+    const PulseSink *default_sink = get_default_sink();
 
-        for (size_t i = 0; i < get_sinks_count(); i++) {
-            if (&sinks[i] == default_sink) {
-                selected_sink = i;
-                break;
-            }
+    for (size_t i = 0; i < get_sinks_count(); i++) {
+        if (&sinks[i] == default_sink) {
+            selected_sink = i;
+            break;
         }
-        pulse_unlock();
-        draw();
-        updated();
+    }
+    pulse_unlock();
+}
+
+static void setup_interactive() {
+    if (interactive) {
+        grab_keyboard();
     }
 }
 
+static void handle_pulse_updates() {
+    if (get_dirty()) {
+        update_selected_sink();
+        draw();
+        set_dirty(0);
+    }
+}
+
+static void handle_sigusr1() {
+    pulse_lock();
+    interactive = 1;
+    setup_interactive();
+    pulse_unlock();
+    set_dirty(1);
+}
+
 static void run(void) {
-    struct timespec start, current, diff, intervalSpec, wait;
-    timespec_set_ms(&intervalSpec, interval);
+    struct timespec start, current, diff, interval_spec, wait;
+    timespec_set_ms(&interval_spec, interval);
 
     for (;;) {
 
@@ -380,7 +398,7 @@ static void run(void) {
         }
 
         timespec_diff(&diff, &current, &start);
-        timespec_diff(&wait, &intervalSpec, &diff);
+        timespec_diff(&wait, &interval_spec, &diff);
 
         if (wait.tv_sec >= 0 && wait.tv_nsec >= 0) {
             if (nanosleep(&wait, NULL) < 0 && errno != EINTR) {
@@ -391,17 +409,45 @@ static void run(void) {
 }
 
 static void check_singleton(void) {
-    int pidFile = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
-    if (pidFile < 0) {
+    int pid_file = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 100000};
+    int kill_attempts = 0;
+
+    if (pid_file < 0) {
         die("error open '/tmp/daudio.pid' errno: %d", errno);
     }
-    while (lockf(pidFile, F_TLOCK, 0) == -1) {
+    while (lockf(pid_file, F_TLOCK, 0) == -1) {
         if (errno != EINTR) {
-            exit(0);
+            if (interactive) {
+                if (kill_attempts > 10) {
+                    die("failed to send SIGUSR1 to singleton after %d tries", kill_attempts);
+                }
+                // read pid from file
+                lseek(pid_file, 0, SEEK_SET);
+                size_t n = read(pid_file, buf, sizeof(buf));
+                buf[n] = '\0';
+                pid_t singleton_pid = strtol(buf, NULL, 10);
+
+                if (singleton_pid > 0) {
+                    // we could have a race condition where another process locked but not yet wrote it's pid, so we wait
+                    // send KILL signal to process
+                    int ret = kill(singleton_pid, SIGUSR1);
+                    if (ret == -1) {
+                        die("kill singleton");
+                    }
+                    exit(0);
+                }
+
+                // give other process time to write it's pid
+                kill_attempts++;
+                nanosleep(&ts, NULL);
+            } else {
+                exit(0);
+            }
         }
     }
     snprintf(buf, sizeof(buf), "%d", getpid());
-    write(pidFile, buf, strlen(buf)+1);
+    write(pid_file, buf, strlen(buf) + 1);
 }
 
 
@@ -497,11 +543,9 @@ static void setup(void) {
     }
 
     drw_resize(drw, mw, mh);
-    if (interactive) {
-        grab_keyboard();
-    }
-
     draw();
+
+    setup_interactive();
 }
 
 static void usage(void) {
@@ -561,6 +605,8 @@ int main(int argc, char *argv[]) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = exit;
     sigaction(SIGINT, &sa, NULL);
+    sa.sa_handler = handle_sigusr1;
+    sigaction(SIGUSR1, &sa, NULL);
 
     setup_pulse();
     execute_cli_command();
@@ -581,6 +627,8 @@ int main(int argc, char *argv[]) {
     if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
         die("no fonts could be loaded.");
 
+    wait_for_default_sink();
+    update_selected_sink();
     setup();
     run();
 

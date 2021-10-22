@@ -42,5 +42,5 @@ void pulse_lock();
 void pulse_unlock();
 
 
-const int get_updates();
-void updated();
+const int get_dirty();
+void set_dirty(int dirty);

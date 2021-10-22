@@ -23,7 +23,7 @@ static int sink_count = 0;
 static char default_sink_name[sizeof(sinks->name)];
 static PulseSink *default_sink = NULL;
 
-static int updates = 0;
+static int dirty = 0;
 
 
 void context_state_callback(pa_context *c, void *userdata);
@@ -108,7 +108,7 @@ void remove_sink(uint32_t index) {
 void server_info_cb(pa_context *c, const pa_server_info *server_info, void *userdata) {
     pulse_lock();
 
-    updates++;
+    dirty++;
 
     if (!server_info) {
         fprintf(stderr, "Server info callback failure");
@@ -126,7 +126,7 @@ void server_info_cb(pa_context *c, const pa_server_info *server_info, void *user
 void sink_info_cb(pa_context *c, const pa_sink_info *sink_info, int eol, void *userdata) {
     pulse_lock();
 
-    updates++;
+    dirty++;
 
     if (eol != 0) {
         if (eol == 1) {
@@ -247,13 +247,13 @@ const PulseSink *get_default_sink()  {
     return default_sink;
 }
 
-const int get_updates() {
-    return updates;
+const int get_dirty() {
+    return dirty;
 }
 
-void updated() {
+void set_dirty(int new_dirty) {
     pulse_lock();
-    updates = 0;
+    dirty = new_dirty;
     pulse_unlock();
 }
 
