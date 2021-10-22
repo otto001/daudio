@@ -5,7 +5,7 @@ daudio is a volume control & sink select ui for dwm.
 
 Requirements
 ------------
-In order to build daudio you need the Xlib header files.
+In order to build daudio you need the Xlib & pulselib header files.
 
 
 Installation
