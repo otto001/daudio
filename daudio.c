@@ -6,16 +6,13 @@
 #include <strings.h>
 #include <time.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <math.h>
 
-#include <sys/wait.h>
+
 #include <sys/file.h>
 #include <errno.h>
 
 #include <signal.h>
-#include <semaphore.h>
-
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -29,11 +26,12 @@
 
 #include "drw.h"
 #include "util.h"
+#include "pulseaudio.h"
 
 /* macros */
 #define INTERSECT(x, y, w, h, r)  (MAX(0, MIN((x)+(w),(r).x_org+(r).width)  - MAX((x),(r).x_org)) \
                              && MAX(0, MIN((y)+(h),(r).y_org+(r).height) - MAX((y),(r).y_org)))
-#define LENGTH(X)             (sizeof X / sizeof X[0])
+#define LENGTH(X)             (sizeof (X) / sizeof (X)[0])
 
 enum {
     SchemeSel, SchemeNorm, SchemeMuted, SchemeLast
@@ -50,29 +48,15 @@ static XIC xic;
 static Drw *drw;
 static Clr *scheme[SchemeLast];
 
-static char muted;
-static int volume;
-static int volumeLimit = 65535;
-static struct timespec lastDraw;
+static struct timespec last_draw;
 
 
-typedef struct Sink {
-    int index;
-    char name[128];
-} Sink;
-
-static Sink *sinks;
-static size_t sinksNum;
-static size_t defaultSink;
-static size_t selectedSink;
+static uint32_t selected_sink;
 
 static char *cmd;
 
 static char buf[32];
-static const char *setVolCmd[] = {"amixer", "set", "Master", buf, NULL};
-static const char *toggleVolCmd[] = {"amixer", "set", "Master", "toggle", NULL};
 
-sem_t mutex;
 
 #include "config.h"
 
@@ -88,238 +72,163 @@ cleanup(void) {
     for (size_t i = 0; i < SchemeLast; i++) {
         free(scheme[i]);
     }
-    if (sinks) {
-        free(sinks);
-    }
-    sem_destroy(&mutex);
-
+    free_pulse();
 }
 
-static void
-readAlsaVolume() {
-    const char* readVec[] = {"amixer", "get", "Master", NULL};
-    const char* readOutput = execRead(readVec[0], readVec);
-
-    if (!readOutput) {
-        die("unable to read volume");
-    }
-
-    const char *firstBracket = strchr(readOutput, '[');
-    const char *secondBracket = strchr(firstBracket + 1, '[');
-    const char *volumeStart = firstBracket-2;
-    for (; volumeStart > readOutput && *volumeStart != ' '; --volumeStart) {
-    }
-
-    if (!firstBracket || !secondBracket) {
-        die("unable to read volume");
-    }
-
-    sem_wait(&mutex);
-    volume = (int) strtol(volumeStart+1, NULL, 10);
-    muted = (char) (strncmp(secondBracket + 1, "on", 2) != 0);
-    sem_post(&mutex);
-}
-
-static int readSinks() {
-    char *sinksRaw = runCommand(
-            "pacmd list-sinks | sed -n -E 's/(index:|^\t\tdevice\\.product\\.name = )//p'");
-    const char *sinksRawEnd = sinksRaw + strlen(sinksRaw);
-    if (sinksRaw) {
-        int occurrences = 0;
-        for (const char *s = sinksRaw; s[occurrences]; s[occurrences] == '\n' ? occurrences++ : *s++);
-        sinksNum = ((occurrences + 1) / 2);
-
-        int index = 0;
-
-        if (sinks) {
-            free(sinks);
-        }
-        sinks = malloc(sizeof(Sink) * sinksNum);
-
-        char *ptr = strtok(sinksRaw, "\n");
-        char *indexPtr = NULL;
-
-        while (ptr != NULL) {
-            if (indexPtr != NULL) {
-                while (!isdigit(*indexPtr) && indexPtr != sinksRawEnd) {
-                	if (*indexPtr == '*') {
-     	                defaultSink = selectedSink = index;
-     	                break;
-                	}
-                    indexPtr++;
-                }
-                sinks[index].index = (int) strtol(indexPtr, NULL, 10);
-                char *name = sinks[index].name;
-                ptr = strchr(ptr, '"') + 1;
-                snprintf(name, sizeof(sinks[0].name), "%s", ptr);
-                if (name[strlen(name) - 1] == '"') {
-                    name[strlen(name) - 1] = '\0';
-                }
-                index++;
-                indexPtr = NULL;
-            } else {
-                indexPtr = ptr;
-            }
-            ptr = strtok(NULL, "\n");
-        }
-
-    }
-    return 0;
-}
-
-static double
-getVolumeRatio(void) {
-    double result = ((double) (volume - minVolumeFactor * volumeLimit)) / ((double) volumeLimit * (maxVolumeFactor - minVolumeFactor));
+static float
+get_volume_ratio(void) {
+    const PulseSink *sink = get_default_sink();
+    float result = ((float) (sink->volume - min_volume_factor * PA_VOLUME_NORM)) / ((float) PA_VOLUME_NORM * (max_volume_factor - min_volume_factor));
     result = MAX(result, 0);
     result = MIN(result, 1);
     return result;
 }
 
-static void
-executeCommand(const char **cmdVec) {
-    pid_t child = fork();
-    if (child == -1) {
-        die("fork: %d", errno);
-    } else if (child == 0) {
-        int fd = open("/dev/null", O_WRONLY);
-        dup2(fd, 1);
-        dup2(fd, 2);
-        execvp(cmdVec[0], (char *const *) cmdVec);
-        _exit(1);
+static void toggle_mute() {
+    pulse_lock();
+    const PulseSink* sink = get_default_sink();
+    set_mute(sink, !sink->mute);
+    pulse_unlock();
+}
+
+static void change_volume(float direction) {
+    pulse_lock();
+    const PulseSink* sink = get_default_sink();
+    if (!sink) {
+        die("change_volume failed: no default sink");
+        return;
     }
-    waitpid(child, NULL, 0);
-}
-
-static void
-toggleMute() {
-    executeCommand(toggleVolCmd);
-    muted = (char) !muted;
-}
-
-static void
-changeVolume(int direction) {
-    int maxVolume = (int)(maxVolumeFactor * volumeLimit + 0.5);
-    int minVolume = (int)(minVolumeFactor * volumeLimit + 0.5);
+    uint32_t volume = sink->volume;
+    int max_volume = (int) roundf(max_volume_factor * PA_VOLUME_NORM);
+    int min_volume = (int) roundf(min_volume_factor * PA_VOLUME_NORM);
 
 
-    double volumeStep = (minVolumeStep + (maxVolumeStep - minVolumeStep) * getVolumeRatio()) *
-                        (maxVolume-minVolume);
-    volumeStep = MAX(1.0, volumeStep);
-    volumeStep *= direction;
+    float volume_step = (min_volume_step + (max_volume_step - min_volume_step) * get_volume_ratio()) *
+                         ((float) (max_volume - min_volume));
+    volume_step = MAX(1.0, volume_step);
+    volume_step *= direction;
 
     // Ensure that previous volume is within limits.
     // Without this, edge case can occur where the first/last step needs to be fired twice
-    if (volume <= minVolumeFactor * volumeLimit * 1.001) {
-        volume = MAX(minVolume, volume);
-        if (muted) {
-            toggleMute();
-        }
+    if (volume <= min_volume_factor * PA_VOLUME_NORM * 1.001) {
+        volume = MAX(min_volume, volume);
+        set_mute(sink, 0);
     } else {
-        volume = MIN(maxVolume, volume);
+        volume = MIN(max_volume, volume);
     }
 
 
-    volume += (int) (volumeStep + 0.5);
+    volume += (int) roundf(volume_step);
 
     // Ensure that new volume is within limits.
-    if (volume <= minVolumeFactor * volumeLimit) {
-        volume = (int) (minVolumeFactor * volumeLimit + 0.5);
-        if (!muted) {
-            toggleMute();
-        }
-    } else if (volume >= maxVolume*0.995) {
-        volume = maxVolume;
+    if (volume <= min_volume) {
+        volume = min_volume;
+        set_mute(sink, 1);
+    } else if (volume >= max_volume * 0.995) {
+        volume = max_volume;
     }
-    snprintf(buf, sizeof(buf), "%d", volume);
-    executeCommand(setVolCmd);
+    set_volume(sink, volume);
+    pulse_unlock();
 }
 
-static void
-executeCliCommand(void) {
+static void wait_for_default_sink() {
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 100000};
+    for (int i = 0; i < 100; ++i) {
+        if (get_default_sink()) {
+            return;
+        }
+        nanosleep(&ts, NULL);
+    }
+    die("execute_cli_command failed: no default sink");
+
+}
+
+static void execute_cli_command(void) {
     if (cmd == NULL) {
         return;
     }
 
+    wait_for_default_sink();
+
     if (strcmp(cmd, "toggle") == 0) {
-        toggleMute();
+        toggle_mute();
     } else if (strcmp(cmd, "inc") == 0){
-        changeVolume(1);
+        change_volume(1);
     } else if (strcmp(cmd, "dec") == 0) {
-        changeVolume(-1);
+        change_volume(-1);
     }
 }
 
-static void
-setPlaybackSink(int number) {
-    int index = sinks[number].index;
-
-    char bigBuf[256];
-    snprintf(bigBuf, sizeof(bigBuf),
-             "/bin/bash -c \"inputs=\\$(pacmd list-sink-inputs | awk '/index/ {print \\$2}'); pacmd set-default-sink %d &> /dev/null; for i in \\$inputs; do pacmd move-sink-input \\$i %d &> /dev/null; done\"",
-             index, index);
-    runCommand(bigBuf);
-    readAlsaVolume();
-    readSinks();
+static void set_selected_to_default_sink() {
+    pulse_lock();
+    if (selected_sink > get_sinks_count()) {
+        pulse_unlock();
+        return;
+    };
+    set_default_sink(&get_sinks()[selected_sink]);
+    pulse_unlock();
 }
 
-static void
-draw(void) {
-    sem_wait(&mutex);
+static void draw(void) {
+    pulse_lock();
 
-    int barHeight = (int) 1.5f * bh;
-    int newMh = (int) (barHeight + (interactive ? bh + bh * sinksNum : 0));
+    int sinks_count = get_sinks_count();
+    const PulseSink *default_sink = get_default_sink();
+
+    int bar_height = (int) 1.5f * bh;
+    int newMh = (int) (bar_height + (interactive ? bh + bh * sinks_count : 0));
 
     if (mh != newMh) {
         mh = newMh;
         XResizeWindow(dpy, win, mw, mh);
         drw_resize(drw, mw, mh);
     }
+
     drw_setscheme(drw, scheme[SchemeNorm]);
     drw_rect(drw, 0, 0, mw, mh, 1, 1);
 
-    double volumeRatio = getVolumeRatio();
-    if (volumeRatio >= 0) {
-        int w = (int) (mw * volumeRatio);
-        w = MIN(w, mw);
-        if (muted) {
-            drw_setscheme(drw, scheme[SchemeMuted]);
-        } else {
-            drw_setscheme(drw, scheme[SchemeSel]);
-        }
-
-        drw_rect(drw, 0, 0, w, barHeight, 1, 1);
+    float volume_ratio = get_volume_ratio();
+    int w = (int) ((float) mw * volume_ratio);
+    if (default_sink->mute) {
+        drw_setscheme(drw, scheme[SchemeMuted]);
+    } else {
+        drw_setscheme(drw, scheme[SchemeSel]);
     }
+
+    drw_rect(drw, 0, 0, w, bar_height, 1, 1);
 
     if (interactive) {
         drw_setscheme(drw, scheme[SchemeNorm]);
 
-        int y = barHeight + bh;
+        int y = bar_height + bh;
 
-        for (size_t index = 0; index < sinksNum; index++) {
+        const PulseSink *pulse_sinks = get_sinks();
 
-            if (index == selectedSink) {
+        for (size_t index = 0; index < sinks_count; index++) {
+            const PulseSink *sink = &pulse_sinks[index];
+
+            if (index == selected_sink) {
                 drw_setscheme(drw, scheme[SchemeSel]);
                 drw_rect(drw, 0, y, mw, bh, 1, 1);
             } else {
                 drw_setscheme(drw, scheme[SchemeNorm]);
             }
-            if (index == defaultSink) {
+            if (sink == default_sink) {
                 drw_text(drw, 0, y, mw, bh, lrpad / 2, "*", 0);
             }
-            drw_text(drw, bh, y, mw - bh, bh, lrpad / 2, sinks[index].name, 0);
+            drw_text(drw, bh, y, mw - bh, bh, lrpad / 2, sink->description, 0);
             y += bh;
         }
     }
     drw_map(drw, win, 0, 0, mw, mh);
 
-    if (clock_gettime(CLOCK_MONOTONIC, &lastDraw) < 0) {
+    if (clock_gettime(CLOCK_MONOTONIC, &last_draw) < 0) {
         die("clock_gettime:");
     }
-    sem_post(&mutex);
+    pulse_unlock();
 }
 
-static void
-keypress(XKeyEvent *ev) {
+static void keypress(XKeyEvent *ev) {
     KeySym ksym;
     Status status;
 
@@ -336,29 +245,29 @@ keypress(XKeyEvent *ev) {
             return;
         case XK_Right:
         case 0x1008ff13:
-            changeVolume(1);
+            change_volume(1);
             break;
         case XK_Left:
         case 0x1008ff11:
-            changeVolume(-1);
+            change_volume(-1);
             break;
         case XK_Up:
-            if (selectedSink > 0) {
-                selectedSink--;
+            if (selected_sink > 0) {
+                selected_sink--;
             }
             break;
         case XK_Down:
-            if (selectedSink < sinksNum - 1) {
-                selectedSink++;
+            if (selected_sink < get_sinks_count() - 1) {
+                selected_sink++;
             }
             break;
         case XK_Return:
         case XK_KP_Enter:
-            setPlaybackSink(selectedSink);
+            set_selected_to_default_sink();
             break;
         case XK_m:
         case 0x1008ff12:
-            toggleMute();
+            toggle_mute();
             break;
         case XK_Escape:
         case XK_q:
@@ -367,8 +276,7 @@ keypress(XKeyEvent *ev) {
     draw();
 }
 
-static void
-grabfocus(void) {
+static void grab_focus(void) {
     struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
     Window focuswin;
     int i, revertwin;
@@ -383,8 +291,7 @@ grabfocus(void) {
     die("cannot grab focus");
 }
 
-static void
-grabkeyboard(void) {
+static void grab_keyboard(void) {
     struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};
     int i;
 
@@ -400,8 +307,7 @@ grabkeyboard(void) {
     die("cannot grab keyboard");
 }
 
-static void
-handleEvents(void) {
+static void handle_events(void) {
     XEvent ev;
 
     while (XPending(dpy) && !XNextEvent(dpy, &ev)) {
@@ -411,7 +317,7 @@ handleEvents(void) {
             case FocusIn:
                 /* regrab focus from parent window */
                 if (ev.xfocus.window != win)
-                    grabfocus();
+                    grab_focus();
                 break;
             case KeyPress:
                 keypress(&ev.xkey);
@@ -432,10 +338,27 @@ handleEvents(void) {
     }
 }
 
-static void
-run(void) {
+static void handle_pulse_updates() {
+    if (get_updates()) {
+        pulse_lock();
+        const PulseSink *sinks = get_sinks();
+        const PulseSink *default_sink = get_default_sink();
+
+        for (size_t i = 0; i < get_sinks_count(); i++) {
+            if (&sinks[i] == default_sink) {
+                selected_sink = i;
+                break;
+            }
+        }
+        pulse_unlock();
+        draw();
+        updated();
+    }
+}
+
+static void run(void) {
     struct timespec start, current, diff, intervalSpec, wait;
-    timespecSetMs(&intervalSpec, interval);
+    timespec_set_ms(&intervalSpec, interval);
 
     for (;;) {
 
@@ -443,19 +366,21 @@ run(void) {
             die("clock_gettime:");
         }
 
-        timespecDiff(&diff, &start, &lastDraw);
-        if (timespecToMs(&diff) > lifetime) {
+        timespec_diff(&diff, &start, &last_draw);
+        if (timespec_to_ms(&diff) > lifetime) {
             exit(0);
         }
 
-        handleEvents();
+        handle_events();
+        handle_pulse_updates();
+
 
         if (clock_gettime(CLOCK_MONOTONIC, &current) < 0) {
             die("clock_gettime:");
         }
 
-        timespecDiff(&diff, &current, &start);
-        timespecDiff(&wait, &intervalSpec, &diff);
+        timespec_diff(&diff, &current, &start);
+        timespec_diff(&wait, &intervalSpec, &diff);
 
         if (wait.tv_sec >= 0 && wait.tv_nsec >= 0) {
             if (nanosleep(&wait, NULL) < 0 && errno != EINTR) {
@@ -465,22 +390,13 @@ run(void) {
     }
 }
 
-static void
-checkSingleton(void) {
+static void check_singleton(void) {
     int pidFile = open("/tmp/daudio.pid", O_CREAT | O_RDWR, 0666);
     if (pidFile < 0) {
         die("error open '/tmp/daudio.pid' errno: %d", errno);
     }
     while (lockf(pidFile, F_TLOCK, 0) == -1) {
         if (errno != EINTR) {
-            ssize_t n = read(pidFile, buf, sizeof(buf));
-            buf[n] = '\0';
-            pid_t singletonPid = strtol(buf, NULL, 10);
-            if (interactive) {
-                kill(singletonPid, SIGUSR2);
-            } else {
-                kill(singletonPid, SIGUSR1);
-            }
             exit(0);
         }
     }
@@ -488,38 +404,8 @@ checkSingleton(void) {
     write(pidFile, buf, strlen(buf)+1);
 }
 
-void
-update() {
-    readAlsaVolume();
-    if (interactive) {
-        readSinks();
-    }
-    draw();
-}
 
-void
-onSigUsr1(int _unused) {
-    (void)_unused;
-
-    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
-    nanosleep(&ts, NULL);
-    update();
-}
-
-void
-onSigUsr2(int _unused) {
-    (void)_unused;
-
-    struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000};
-    nanosleep(&ts, NULL);
-
-    interactive = 1;
-    grabkeyboard();
-    update();
-}
-
-static void
-setup(void) {
+static void setup(void) {
     int x, y, i, j;
     unsigned int du;
     XSetWindowAttributes swa;
@@ -612,21 +498,19 @@ setup(void) {
 
     drw_resize(drw, mw, mh);
     if (interactive) {
-        grabkeyboard();
+        grab_keyboard();
     }
 
     draw();
 }
 
-static void
-usage(void) {
+static void usage(void) {
     fputs("usage:  daudio [-iv] [-cmd inc|dec|toggle] [-m monitor] [-fn font] ["
           "-nb color] [-nf color] [-sb color] [-sf color] [-mb color] [-mf color] [-w windowid]\n", stderr);
     exit(1);
 }
 
-int
-main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     XWindowAttributes wa;
     int i;
     struct sigaction sa;
@@ -668,7 +552,6 @@ main(int argc, char *argv[]) {
         else
             usage();
     }
-    sem_init(&mutex, 0, 1);
 
     int e = atexit(cleanup);
     if (e != 0) {
@@ -676,16 +559,12 @@ main(int argc, char *argv[]) {
     }
 
     memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = onSigUsr1;
-    sigaction(SIGUSR1, &sa, NULL);
-    sa.sa_handler = onSigUsr2;
-    sigaction(SIGUSR2, &sa, NULL);
     sa.sa_handler = exit;
     sigaction(SIGINT, &sa, NULL);
 
-    readAlsaVolume();
-    executeCliCommand();
-    checkSingleton();
+    setup_pulse();
+    execute_cli_command();
+    check_singleton();
 
     if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
         fputs("warning: no locale support\n", stderr);
@@ -701,10 +580,6 @@ main(int argc, char *argv[]) {
     drw = drw_create(dpy, screen, root, wa.width, wa.height);
     if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
         die("no fonts could be loaded.");
-
-    if (interactive) {
-        readSinks();
-    }
 
     setup();
     run();

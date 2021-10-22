@@ -1,6 +1,6 @@
 daudio - dynamic sound
 ====================
-daudio is sound manage util for dwm.
+daudio is a volume control & sink select ui for dwm.
 
 
 Requirements

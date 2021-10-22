@@ -103,7 +103,7 @@ const char* execRead(const char *file, const char *params[]) {
 
 }
 
-void timespecSetMs(struct timespec *ts, int32_t ms) {
+void timespec_set_ms(struct timespec *ts, int32_t ms) {
     ts->tv_sec =  ms/1000;
     ts->tv_nsec = (ms - 1000*ts->tv_sec) * 1000000;
 }
@@ -116,12 +116,12 @@ void timespecAddMs(struct timespec *ts, int32_t ms) {
 }
 
 
-void timespecDiff(struct timespec *res, struct timespec *a, struct timespec *b) {
+void timespec_diff(struct timespec *res, struct timespec *a, struct timespec *b) {
     res->tv_sec = a->tv_sec - b->tv_sec - (a->tv_nsec < b->tv_nsec);
     res->tv_nsec = a->tv_nsec - b->tv_nsec + (a->tv_nsec < b->tv_nsec) * 1000000000;
 }
 
-int32_t timespecToMs(struct timespec *ts) {
+int32_t timespec_to_ms(struct timespec *ts) {
     return ts->tv_sec*1000 + ts->tv_nsec/1000000;
 }
 
@@ -129,3 +129,17 @@ int timespecGte(struct timespec *a, struct timespec *b) {
     return (a->tv_sec > b->tv_sec || (a->tv_sec == b->tv_sec && a->tv_nsec >= b->tv_nsec));
 }
 
+ssize_t
+strlcpy(char *dst, const char *src, ssize_t size)
+{
+    ssize_t srclen;
+    size--;
+
+    srclen = strlen(src);
+    if (srclen > size)
+        srclen = size;
+
+    memcpy(dst, src, srclen);
+    dst[srclen] = '\0';
+    return (srclen);
+}

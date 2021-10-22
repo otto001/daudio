@@ -3,10 +3,15 @@
 
 include config.mk
 
-SRC = drw.c daudio.c util.c
+SRC = drw.c daudio.c pulseaudio.c util.c
 OBJ = $(SRC:.c=.o)
 
 all: options daudio
+debug: debug_flags options daudio
+
+debug_flags:
+    CFLAGS += -ggdb
+
 
 options:
 	@echo daudio build options:
@@ -20,10 +25,10 @@ options:
 config.h:
 	cp config.def.h $@
 
-$(OBJ): arg.h config.h config.mk drw.h
+$(OBJ): arg.h config.h config.mk drw.h pulseaudio.h
 
-daudio: daudio.o drw.o util.o
-	$(CC) -o $@ daudio.o drw.o util.o $(LDFLAGS)
+daudio: daudio.o drw.o util.o pulseaudio.o
+	$(CC) -o $@ daudio.o drw.o util.o pulseaudio.o $(LDFLAGS)
 
 clean:
 	rm -f daudio $(OBJ) daudio-$(VERSION).tar.gz
@@ -31,7 +36,7 @@ clean:
 dist: clean
 	mkdir -p daudio-$(VERSION)
 	cp LICENSE Makefile README arg.h config.def.h config.mk daudio.1\
-		drw.h util.h $(SRC)\
+		drw.h util.h pulseaudio.h $(SRC)\
 		daudio-$(VERSION)
 	tar -cf daudio-$(VERSION).tar daudio-$(VERSION)
 	gzip daudio-$(VERSION).tar

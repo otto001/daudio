@@ -18,7 +18,7 @@ static int height = 150;
 static int interval = 33;
 static int lifetime = 2500;
 
-static double minVolumeFactor = 0.09;
-static double maxVolumeFactor = 1.0;
-static double maxVolumeStep = 0.03;
-static double minVolumeStep = 0.01;
+static float min_volume_factor = 0.09;
+static float max_volume_factor = 1.0;
+static float max_volume_step = 0.03;
+static float min_volume_step = 0.01;

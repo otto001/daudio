@@ -1,5 +1,5 @@
 # daudio version
-VERSION = 1.2
+VERSION = 2.0
 
 # paths
 PREFIX = /usr/local
@@ -18,7 +18,7 @@ FREETYPEINC = /usr/include/freetype2
 
 # includes and libs
 INCS = -I$(X11INC) -I$(FREETYPEINC)
-LIBS = -L$(X11LIB) -lX11 $(XINERAMALIBS) $(FREETYPELIBS) -lpthread -lm
+LIBS = -L$(X11LIB) -lX11 $(XINERAMALIBS) $(FREETYPELIBS) -lpthread -lm -lpulse
 
 # flags
 CPPFLAGS = -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=700 -D_POSIX_C_SOURCE=200809L -DVERSION=\"$(VERSION)\" $(XINERAMAFLAGS)
