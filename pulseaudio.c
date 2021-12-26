@@ -25,6 +25,8 @@ static PulseSink *default_sink = NULL;
 
 static int dirty = 0;
 
+static pthread_mutex_t lock;
+
 
 void context_state_callback(pa_context *c, void *userdata);
 

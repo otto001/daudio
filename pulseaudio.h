@@ -24,7 +24,6 @@ typedef struct PulseSink {
     uint8_t channels;
 } PulseSink;
 
-pthread_mutex_t lock;
 
 int setup_pulse();
 
